@@ -101,7 +101,9 @@ db.exec(`
   );
 `);
 
-const DEFAULT_SETTINGS: Record<string, string> = {
+// Single source of truth for setting keys + defaults. Exported so server.ts
+// can use the same allowlist for POST /api/settings and the same defaults for GET.
+export const DEFAULT_SETTINGS: Record<string, string> = {
   user_name: "",
   preferred_lang: "en",
   preferred_voice: "",
@@ -110,6 +112,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   onboarded: "0",
   city: "Seoul",
 };
+export const ALLOWED_SETTING_KEYS = new Set(Object.keys(DEFAULT_SETTINGS));
 
 export function getSetting(key: string): string {
   const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as

@@ -64,13 +64,22 @@ function inWindow(now: Date, when: string): boolean {
   return minutes >= start && minutes < end;
 }
 
+// Local-date stamp (YYYY-MM-DD) — once_per_day fires on the user's calendar day,
+// not on UTC. Using toISOString().slice(0,10) means "day rollover at 00:00 UTC",
+// which is wrong in any non-UTC timezone (e.g. UTC+9: a once_per_day brief
+// scheduled for 06:30 local would only fire on calendar days that happen to
+// roll over in UTC since the previous run).
+function localDateStamp(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function shouldFire(tick: Tick, now: Date, lastRun: Date | null): boolean {
   if (!inWindow(now, tick.when)) return false;
   if (!lastRun) return true;
   const elapsedMin = (now.getTime() - lastRun.getTime()) / 60000;
   switch (tick.cadence) {
     case "once_per_day":
-      return lastRun.toISOString().slice(0, 10) !== now.toISOString().slice(0, 10);
+      return localDateStamp(lastRun) !== localDateStamp(now);
     case "every_5_min":
       return elapsedMin >= 5;
     case "every_minute":
@@ -119,8 +128,13 @@ export function startScheduler(): void {
     `[scheduler] starting, tick interval = ${config.tickIntervalSec}s`,
   );
   // Fire once at startup so the dashboard has a fresh score immediately.
-  void runTickOnce();
-  setInterval(() => {
-    void runTickOnce();
-  }, config.tickIntervalSec * 1000);
+  // Catch rejections so a single bad tick doesn't kill the daemon.
+  const safeTick = () => {
+    runTickOnce().catch((err) => {
+      console.error("[scheduler] runTickOnce failed:", err);
+      try { auditAppend("scheduler_error", { error: (err as Error)?.message ?? String(err) }); } catch {}
+    });
+  };
+  safeTick();
+  setInterval(safeTick, config.tickIntervalSec * 1000);
 }

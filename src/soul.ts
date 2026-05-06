@@ -35,6 +35,9 @@ function extractYamlBlock(raw: string, key: string): unknown {
   return parseYaml(block.join("\n"));
 }
 
+// Match HH:MM strings, e.g. "22:00", "06:30". Anything else is treated as missing.
+const HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
 export function loadSoul(): Soul {
   const raw = readFileSync(config.paths.soul, "utf8");
   const cwBlock = extractYamlBlock(raw, "cost_weights") as
@@ -47,10 +50,23 @@ export function loadSoul(): Soul {
     pre_meeting: { false_alarm: 1, missed_help: 4 },
     commute: { false_alarm: 1.5, missed_help: 3 },
   };
+
+  // SOUL.md uses prose like "22:00 — 06:30" rather than YAML for quiet hours;
+  // pull the first two HH:MM tokens that appear after a "Quiet hours" heading.
+  // Falls back to safe defaults if the file omits them or uses a stray format.
+  let quiet_hours = { start: "22:00", end: "06:30" };
+  const qhSection = raw.split(/^##\s+/m).find((s) => /^quiet hours/i.test(s));
+  if (qhSection) {
+    const times = qhSection.match(/\b([01]\d|2[0-3]):[0-5]\d\b/g);
+    if (times && times.length >= 2 && HHMM.test(times[0]) && HHMM.test(times[1])) {
+      quiet_hours = { start: times[0], end: times[1] };
+    }
+  }
+
   return {
     raw,
     cost_weights,
-    quiet_hours: { start: "22:00", end: "06:30" },
+    quiet_hours,
     enabled_skills: ["morning_brief"],
   };
 }

@@ -201,21 +201,33 @@ function renderSkillRuns(rows) {
   $("#skill-runs-meta").textContent = unlabeled > 0 ? `${unlabeled} unlabeled` : "all labeled";
 }
 
+function renderOllamaHealth(h) {
+  const badge = $("#ollama-badge");
+  if (!badge) return;
+  const online = h.ollama === "online";
+  badge.className = `ollama-badge ${online ? "ollama-online" : "ollama-offline"}`;
+  badge.title = online
+    ? `Shadow AURA: ONLINE (${h.model ?? "unknown model"})`
+    : "Shadow AURA: OFFLINE — slow-mode LLM not available";
+}
+
 let lastCommute = null;
 
 async function refresh() {
-  const [score, cal, audit, twin, runs] = await Promise.all([
+  const [score, cal, audit, twin, runs, health] = await Promise.all([
     jget("/api/score"),
     jget("/api/calendar"),
     jget("/api/audit"),
     jget("/api/twin/patterns"),
     jget("/api/skill_runs"),
+    jget("/health"),
   ]);
   renderScore(score);
   renderCalendar(cal);
   renderAudit(audit);
   renderTwin(twin);
   renderSkillRuns(runs);
+  renderOllamaHealth(health);
   if (lastCommute) renderCommute(lastCommute);
 }
 

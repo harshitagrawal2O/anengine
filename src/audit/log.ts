@@ -62,5 +62,15 @@ export function tail(n = 50): Array<{
   const rows = db
     .prepare("SELECT id, ts, kind, payload, hash FROM audit_log ORDER BY id DESC LIMIT ?")
     .all(n) as Array<Omit<AuditRow, "prev_hash">>;
-  return rows.map((r) => ({ ...r, payload: JSON.parse(r.payload) }));
+  return rows.map((r) => {
+    let payload: unknown;
+    try {
+      payload = JSON.parse(r.payload);
+    } catch {
+      // Corrupt or non-JSON payload — surface as a string so the audit endpoint
+      // keeps working. The hash chain still verifies independently.
+      payload = { _unparseable: true, raw: r.payload };
+    }
+    return { ...r, payload };
+  });
 }

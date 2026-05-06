@@ -97,8 +97,11 @@ export async function shadowReview(
   // Override only if Shadow disagrees AND is highly confident.
   const override = !agreed && parsed.confidence >= 0.7;
 
+  // consulted is true only when the LLM actually responded; fallback means Ollama was offline.
+  const consulted = llm.source === "ollama";
+
   const verdict: ShadowVerdict = {
-    consulted: true,
+    consulted,
     override,
     agreed,
     recommendation: parsed.recommendation,
@@ -111,6 +114,7 @@ export async function shadowReview(
     skill: action.skill,
     fast_gate: proposed,
     shadow: verdict,
+    ...(consulted ? {} : { shadow_skipped: "ollama_offline" }),
   });
 
   return verdict;

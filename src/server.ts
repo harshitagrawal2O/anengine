@@ -1,7 +1,8 @@
 import express from "express";
 import { config } from "./config.js";
+import { checkOllamaHealth, type OllamaHealth } from "./gateway/ollama.js";
 import { computeScore } from "./score/compute.js";
-import { db } from "./db.js";
+import { db, DEFAULT_SETTINGS, ALLOWED_SETTING_KEYS } from "./db.js";
 import { tail as auditTail, verifyChain, append as auditAppend } from "./audit/log.js";
 import { runTickOnce } from "./scheduler.js";
 import * as morningBrief from "./skills/morning_brief/index.js";
@@ -16,9 +17,52 @@ import { isLang, type Lang } from "./i18n.js";
 import { startDemo, stopDemo, getDemoStatus } from "./demo/runner.js";
 import { shouldIntervene, type GateContext, type ProposedAction } from "./pi-engine/gate.js";
 
+// ── Ollama health cache (15-second TTL so the dashboard poll doesn't hammer Ollama) ──
+let _healthCache: { ollama: "online" | "offline"; model: string | null; last_check: string } = {
+  ollama: "offline",
+  model: null,
+  last_check: new Date().toISOString(),
+};
+let _healthCacheExpires = 0;
+
+async function getCachedHealth() {
+  if (Date.now() < _healthCacheExpires) return _healthCache;
+  const h: OllamaHealth = await checkOllamaHealth();
+  _healthCache = {
+    ollama: h.online ? "online" : "offline",
+    model: h.model,
+    last_check: h.checked_at,
+  };
+  _healthCacheExpires = Date.now() + 15_000;
+  return _healthCache;
+}
+
+// Wrap async route handlers so thrown errors / rejected promises route to
+// Express's error pipeline instead of crashing the process. Without this, any
+// throw inside an async handler becomes an unhandled rejection.
+type AsyncHandler = (req: express.Request, res: express.Response, next: express.NextFunction) => Promise<unknown>;
+const wrap = (fn: AsyncHandler): express.RequestHandler =>
+  (req, res, next) => { fn(req, res, next).catch(next); };
+
+// Strict positive-integer parse for path params. Accepts "1".."9007199254740991";
+// rejects "abc", "-1", "1.5", "" and overflow.
+function parseId(s: unknown): number | null {
+  if (typeof s !== "string" || !/^\d+$/.test(s)) return null;
+  const n = Number(s);
+  if (!Number.isSafeInteger(n) || n < 1) return null;
+  return n;
+}
+
+function isIsoDate(s: unknown): s is string {
+  if (typeof s !== "string" || s.length < 10 || s.length > 40) return false;
+  const t = Date.parse(s);
+  return Number.isFinite(t);
+}
+
 export function createServer(): express.Express {
   const app = express();
-  app.use(express.json());
+  // Cap request bodies — prevents trivial memory exhaustion.
+  app.use(express.json({ limit: "256kb" }));
   app.use(express.static(config.paths.publicDir));
 
   // Pretty URLs: / is the landing page, /simple is the PWA, /dev is the dev dashboard.
@@ -35,6 +79,10 @@ export function createServer(): express.Express {
     res.sendFile("activity.html", { root: config.paths.publicDir });
   });
 
+  app.get("/health", wrap(async (_req, res) => {
+    res.json(await getCachedHealth());
+  }));
+
   app.get("/api/score", (_req, res) => {
     res.json(computeScore());
   });
@@ -50,18 +98,31 @@ export function createServer(): express.Express {
 
   app.post("/api/calendar", (req, res) => {
     const { start_ts, end_ts, title, location } = req.body ?? {};
-    if (!start_ts || !end_ts || !title) {
-      res.status(400).json({ error: "start_ts, end_ts, title required" });
+    if (!isIsoDate(start_ts) || !isIsoDate(end_ts) || typeof title !== "string" || !title.trim()) {
+      res.status(400).json({ error: "start_ts, end_ts (ISO 8601), title (non-empty string) required" });
+      return;
+    }
+    if (Date.parse(start_ts) >= Date.parse(end_ts)) {
+      res.status(400).json({ error: "start_ts must be before end_ts" });
+      return;
+    }
+    if (location !== undefined && location !== null && typeof location !== "string") {
+      res.status(400).json({ error: "location must be a string when provided" });
       return;
     }
     db.prepare(
       "INSERT INTO calendar (start_ts, end_ts, title, location) VALUES (?, ?, ?, ?)",
-    ).run(start_ts, end_ts, title, location ?? null);
+    ).run(start_ts, end_ts, title.trim(), location ?? null);
     res.json({ ok: true });
   });
 
   app.delete("/api/calendar/:id", (req, res) => {
-    db.prepare("DELETE FROM calendar WHERE id = ?").run(req.params.id);
+    const id = parseId(req.params.id);
+    if (id === null) {
+      res.status(400).json({ error: "id must be a positive integer" });
+      return;
+    }
+    db.prepare("DELETE FROM calendar WHERE id = ?").run(id);
     res.json({ ok: true });
   });
 
@@ -77,24 +138,24 @@ export function createServer(): express.Express {
     res.json(loadSoul());
   });
 
-  app.post("/api/tick", async (_req, res) => {
+  app.post("/api/tick", wrap(async (_req, res) => {
     await runTickOnce();
     res.json({ ok: true });
-  });
+  }));
 
-  app.post("/api/run/morning_brief", async (req, res) => {
+  app.post("/api/run/morning_brief", wrap(async (req, res) => {
     const dry_run = !!req.body?.dry_run;
     const lang: Lang = isLang(req.body?.lang) ? req.body.lang : "en";
     const result = await morningBrief.run({ dry_run, lang });
     res.json(result);
-  });
+  }));
 
-  app.post("/api/run/commute_guardian", async (req, res) => {
+  app.post("/api/run/commute_guardian", wrap(async (req, res) => {
     const dry_run = !!req.body?.dry_run;
     const lang: Lang = isLang(req.body?.lang) ? req.body.lang : "en";
     const result = await commuteGuardian.run({ dry_run, lang });
     res.json(result);
-  });
+  }));
 
   app.get("/api/skill_runs", (_req, res) => {
     const rows = db
@@ -106,7 +167,11 @@ export function createServer(): express.Express {
   });
 
   app.post("/api/skill_runs/:id/feedback", (req, res) => {
-    const id = Number(req.params.id);
+    const id = parseId(req.params.id);
+    if (id === null) {
+      res.status(400).json({ error: "id must be a positive integer" });
+      return;
+    }
     const action = req.body?.action;
     if (action !== "accept" && action !== "dismiss") {
       res.status(400).json({ error: "action must be accept or dismiss" });
@@ -114,9 +179,13 @@ export function createServer(): express.Express {
     }
     const accepted = action === "accept" ? 1 : 0;
     const dismissed = action === "dismiss" ? 1 : 0;
-    db.prepare(
+    const result = db.prepare(
       "UPDATE skill_runs SET accepted = ?, dismissed = ? WHERE id = ?",
     ).run(accepted, dismissed, id);
+    if (result.changes === 0) {
+      res.status(404).json({ error: "skill_run not found" });
+      return;
+    }
     auditAppend("user_feedback", { skill_run_id: id, action });
     // Re-learn so the gate's next decision uses the updated acceptance rate.
     const patterns = learnAndPersist();
@@ -144,13 +213,14 @@ export function createServer(): express.Express {
   });
 
   app.post("/api/voice/test", (req, res) => {
-    const text = req.body?.text ?? "AURA voice check.";
+    const text = String(req.body?.text ?? "AURA voice check.").slice(0, 2000);
     const result = speak(text);
     res.json({ ...result, text });
   });
 
-  app.post("/api/say", async (req, res) => {
-    const transcript = String(req.body?.transcript ?? "").trim();
+  app.post("/api/say", wrap(async (req, res) => {
+    // Cap transcript length so a runaway client can't queue megabytes of TTS.
+    const transcript = String(req.body?.transcript ?? "").trim().slice(0, 2000);
     if (!transcript) {
       res.status(400).json({ error: "transcript required" });
       return;
@@ -161,7 +231,7 @@ export function createServer(): express.Express {
     // Speak the reply through the macOS channel too (in case the user is near the laptop).
     speak(result.reply);
     res.json(result);
-  });
+  }));
 
   app.get("/api/quiet", (_req, res) => {
     res.json(isInQuietBlock());
@@ -174,34 +244,48 @@ export function createServer(): express.Express {
       .all() as Array<{ key: string; value: string }>);
     const obj: Record<string, string> = {};
     for (const r of all) obj[r.key] = r.value;
-    // Merge with defaults so first-call returns sensible values.
-    const defaults = {
-      user_name: "",
-      preferred_lang: "en",
-      preferred_voice: "",
-      quiet_start: "22:00",
-      quiet_end: "06:30",
-      onboarded: "0",
-      city: "Seoul",
-    };
-    res.json({ ...defaults, ...obj });
+    // Merge with defaults so first-call returns sensible values. Single source
+    // of truth is db.ts so the GET defaults never drift from the POST allowlist.
+    res.json({ ...DEFAULT_SETTINGS, ...obj });
   });
 
   app.post("/api/settings", (req, res) => {
-    const updates = req.body ?? {};
+    const updates = req.body;
+    if (updates === null || typeof updates !== "object" || Array.isArray(updates)) {
+      res.status(400).json({ error: "body must be an object" });
+      return;
+    }
     const ts = new Date().toISOString();
-    for (const [k, v] of Object.entries(updates)) {
+    const accepted: Record<string, string> = {};
+    const rejected: string[] = [];
+    // Use Object.keys (own enumerable) to avoid prototype pollution via __proto__.
+    for (const k of Object.keys(updates)) {
+      if (!ALLOWED_SETTING_KEYS.has(k)) { rejected.push(k); continue; }
+      const v = (updates as Record<string, unknown>)[k];
+      // Reject non-stringifiable types — we don't want "[object Object]" persisted.
+      if (typeof v !== "string" && typeof v !== "number" && typeof v !== "boolean") {
+        rejected.push(k);
+        continue;
+      }
+      const stored = String(v).slice(0, 1000);
       db.prepare(
         "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
-      ).run(k, String(v), ts);
+      ).run(k, stored, ts);
+      accepted[k] = stored;
     }
-    auditAppend("settings_updated", { updates });
-    res.json({ ok: true });
+    auditAppend("settings_updated", { accepted, rejected });
+    res.json({ ok: true, accepted, rejected });
   });
 
   // ---- Activity stats: per-day counts + acceptance ----
   app.get("/api/activity", (req, res) => {
-    const days = Number((req.query?.days as string | undefined) ?? 7);
+    // Validate days: positive integer, capped to 365 so an attacker can't
+    // request a billion-day window and lock the SQLite scan.
+    const raw = req.query?.days;
+    const parsed = raw === undefined ? 7 : Number(raw);
+    const days = Number.isFinite(parsed) && parsed >= 1 && parsed <= 365
+      ? Math.floor(parsed)
+      : 7;
     const since = new Date(Date.now() - days * 24 * 3600 * 1000).toISOString();
     const totals = db
       .prepare(
@@ -243,14 +327,18 @@ export function createServer(): express.Express {
   });
 
   // ---- Auto-demo: AURA narrates and triggers her own pitch.
-  app.post("/api/demo/start", async (_req, res) => {
+  app.post("/api/demo/start", (_req, res) => {
     const status = getDemoStatus();
     if (status.running) {
       res.status(409).json({ error: "demo already running", status });
       return;
     }
-    // Fire-and-forget; client polls /api/demo/state for progress.
-    void startDemo();
+    // Fire-and-forget; client polls /api/demo/state for progress. We catch the
+    // promise so a thrown demo step doesn't become an unhandled rejection.
+    startDemo().catch((err) => {
+      console.error("[demo] startDemo failed:", err);
+      auditAppend("demo_error", { error: (err as Error)?.message ?? String(err) });
+    });
     res.json({ ok: true, status: getDemoStatus() });
   });
 
@@ -265,7 +353,7 @@ export function createServer(): express.Express {
 
   // Raw narration (used by client-driven demos that want to push text into the orb's "last said").
   app.post("/api/narrate", (req, res) => {
-    const text = String(req.body?.text ?? "").trim();
+    const text = String(req.body?.text ?? "").trim().slice(0, 2000);
     if (!text) {
       res.status(400).json({ error: "text required" });
       return;
@@ -280,9 +368,12 @@ export function createServer(): express.Express {
   // Convenience endpoint for the Simple page: returns the last sent notification
   // and the next scheduled tick window so the UI can show "next: morning_brief @ 06:30".
   app.get("/api/last", (_req, res) => {
+    // Match the JSON key '"text":' (not the substring "text", which would match
+    // payloads with words like "context"). Backslash-escape the quotes since
+    // SQLite LIKE doesn't treat them specially but the literal needs them.
     const lastNotif = db
       .prepare(
-        "SELECT ts, skill, payload FROM skill_runs WHERE payload LIKE '%text%' ORDER BY id DESC LIMIT 1",
+        `SELECT ts, skill, payload FROM skill_runs WHERE payload LIKE '%"text":%' ORDER BY id DESC LIMIT 1`,
       )
       .get() as { ts: string; skill: string; payload: string } | undefined;
     let lastText: string | null = null;
@@ -336,6 +427,19 @@ export function createServer(): express.Express {
     };
     const decision = shouldIntervene(action, ctx, loadSoul(), loadTwin());
     res.json({ decision, score: { total: score.total }, context: ctx });
+  });
+
+  // Global error handler — catches both sync throws and rejected promises
+  // routed via wrap(). Without this, async failures crash the daemon. Must be
+  // declared LAST so it sees errors from every preceding route.
+  app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[server] unhandled error:", err);
+    try {
+      auditAppend("server_error", { message });
+    } catch { /* never let auditing recursion crash the handler */ }
+    if (res.headersSent) return;
+    res.status(500).json({ error: "internal_error", message });
   });
 
   return app;

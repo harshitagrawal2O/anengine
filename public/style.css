@@ -64,6 +64,27 @@ body {
   box-shadow: 0 0 8px var(--good);
 }
 
+.ollama-badge {
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ollama-badge::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.ollama-online  { color: var(--good); }
+.ollama-offline { color: var(--warn); }
+
 main {
   padding: 16px;
   display: flex;

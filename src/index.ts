@@ -5,6 +5,7 @@ import { createServer } from "./server.js";
 import { append as auditAppend, verifyChain } from "./audit/log.js";
 import { seed } from "./data/seed.js";
 import { countCalibratedContexts } from "./pi-engine/calibration.js";
+import { checkOllamaHealth } from "./gateway/ollama.js";
 
 function maybeSeed(): void {
   const row = db.prepare("SELECT COUNT(*) AS c FROM calendar").get() as
@@ -41,6 +42,13 @@ function main(): void {
   const app = createServer();
   app.listen(config.port, () => {
     console.log(`AURA dashboard:  http://localhost:${config.port}`);
+    void checkOllamaHealth().then((h) => {
+      if (h.online) {
+        console.log(`Ollama: ONLINE — model ${h.model ?? config.ollama.model} loaded`);
+      } else {
+        console.log("Ollama: OFFLINE — Shadow AURA will be SUPPRESSED, not consulted");
+      }
+    });
   });
 }
 
