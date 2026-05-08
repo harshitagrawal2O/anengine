@@ -6,169 +6,31 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="theme-color" content="#0b0014" />
+    <meta name="theme-color" content="#080810" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icon.svg" />
     <link rel="apple-touch-icon" href="/icon.svg" />
-    <title>AURA</title>
+    <title>AURA — Your Digital Twin</title>
     <link rel="stylesheet" href="/style.css" />
     <style>
-      /* Page-specific overrides */
-      body { height: 100vh; overflow: hidden; padding: 0; }
-      .phone { border: none; max-width: 100%; border-radius: 0; }
-        background:
-          radial-gradient(ellipse at 50% 0%, #2d0a4e 0%, transparent 60%),
-          radial-gradient(ellipse at 30% 100%, #4a1a7a 0%, transparent 50%),
-          radial-gradient(ellipse at 80% 80%, #1a0a3a 0%, transparent 50%),
-          #050008;
-        display: flex;
-        flex-direction: column;
-        min-height: 100vh;
-        padding: env(safe-area-inset-top) 20px env(safe-area-inset-bottom);
-      }
+      /* App-specific layout only — no design tokens here */
+      html, body { height: 100%; overflow: hidden; }
 
-      header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 16px 4px 0;
-        gap: 12px;
-      }
-      .brand {
-        font-weight: 700;
-        font-size: 13px;
-        letter-spacing: 0.4em;
-        color: #c9a8ff;
-      }
-      .lang-picker {
-        display: flex;
-        gap: 4px;
-        background: rgba(255,255,255,0.05);
-        border: 1px solid rgba(255,255,255,0.1);
-        padding: 3px;
-        border-radius: 999px;
-        backdrop-filter: blur(20px);
-      }
-      .lang-picker button {
-        background: transparent;
-        border: none;
-        color: rgba(245, 233, 255, 0.55);
-        font-size: 11px;
-        font-weight: 600;
-        padding: 6px 12px;
-        border-radius: 999px;
-        cursor: pointer;
-        font-family: inherit;
-        letter-spacing: 0.05em;
-      }
-      .lang-picker button.active {
-        background: rgba(168, 85, 247, 0.3);
-        color: #fff;
-      }
-      .status-dot {
-        width: 9px;
-        height: 9px;
-        border-radius: 50%;
-        background: #4ade80;
-        box-shadow: 0 0 12px #4ade80;
-        animation: breathe 2.4s ease-in-out infinite;
-        flex-shrink: 0;
-      }
-      @keyframes breathe {
-        0%, 100% { transform: scale(1); opacity: 0.7; }
-        50% { transform: scale(1.4); opacity: 1; }
-      }
-
-      main {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        text-align: center;
-        gap: 28px;
-        padding: 24px 0;
-      }
-
-      .orb-wrap { position: relative; cursor: pointer; }
-      .orb {
-        width: 200px;
-        height: 200px;
-        border-radius: 50%;
-        background:
-          radial-gradient(circle at 30% 30%, rgba(255,255,255,0.5) 0%, transparent 40%),
-          radial-gradient(circle at 70% 70%, #c084fc 0%, #6b21a8 60%, #2e0a52 100%);
-        box-shadow:
-          0 0 80px rgba(168, 85, 247, 0.5),
-          0 0 160px rgba(168, 85, 247, 0.25),
-          inset 0 0 60px rgba(255, 255, 255, 0.1);
-        animation: float 6s ease-in-out infinite;
-      }
-      .orb.speaking { animation: float 6s ease-in-out infinite, pulse 0.8s ease-in-out infinite; }
-      .orb.listening { animation: float 6s ease-in-out infinite, pulseRed 1s ease-in-out infinite; }
-      @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
-      @keyframes pulse {
-        0%, 100% { box-shadow: 0 0 80px rgba(168,85,247,0.5), 0 0 160px rgba(168,85,247,0.25), inset 0 0 60px rgba(255,255,255,0.1); }
-        50% { box-shadow: 0 0 120px rgba(168,85,247,0.9), 0 0 220px rgba(168,85,247,0.5), inset 0 0 80px rgba(255,255,255,0.2); }
-      }
-      @keyframes pulseRed {
-        0%, 100% { box-shadow: 0 0 80px rgba(239,68,68,0.5), 0 0 160px rgba(239,68,68,0.25), inset 0 0 60px rgba(255,255,255,0.1); }
-        50% { box-shadow: 0 0 140px rgba(239,68,68,0.9), 0 0 240px rgba(239,68,68,0.5), inset 0 0 80px rgba(255,255,255,0.2); }
-      }
-
-      .last-message {
-        max-width: 540px;
-        font-size: 20px;
-        line-height: 1.45;
-        font-weight: 500;
-        color: #f5e9ff;
-        padding: 0 8px;
-        min-height: 70px;
-      }
-      .last-message.empty {
-        color: rgba(245, 233, 255, 0.45);
-        font-style: italic;
-        font-weight: 400;
-      }
-      .transcript {
-        font-size: 13px;
-        color: rgba(245, 233, 255, 0.5);
-        font-style: italic;
-        min-height: 18px;
-      }
-      .meta-row {
-        display: flex;
-        gap: 20px;
-        font-size: 11px;
-        color: rgba(245, 233, 255, 0.5);
-        text-transform: uppercase;
-        letter-spacing: 0.18em;
-      }
-      .meta-row strong {
-        display: block;
-        font-size: 14px;
-        color: #f5e9ff;
-        text-transform: none;
-        letter-spacing: 0;
-        margin-top: 4px;
-        font-weight: 600;
-      }
+      /* demo/quiet banners */
       .quiet-banner {
-        background: rgba(239, 68, 68, 0.12);
-        border: 1px solid rgba(239, 68, 68, 0.3);
+        background: rgba(248,113,113,0.08);
+        border: 1px solid rgba(248,113,113,0.25);
         color: #fca5a5;
-        padding: 8px 14px;
-        border-radius: 999px;
+        padding: 7px 14px;
+        border-radius: 99px;
         font-size: 12px;
+        text-align: center;
         display: none;
       }
       .quiet-banner.show { display: block; }
-
       .demo-banner {
-        margin: 10px auto 6px;
-        max-width: 540px;
-        background: linear-gradient(135deg, rgba(245,158,11,0.15), rgba(236,72,153,0.15));
-        border: 1px solid rgba(245,158,11,0.3);
+        background: rgba(251,191,36,0.08);
+        border: 1px solid rgba(251,191,36,0.2);
         color: #fde68a;
         padding: 10px 14px;
         border-radius: 12px;
@@ -177,287 +39,158 @@
         display: none;
       }
       .demo-banner.show { display: block; }
-      .demo-banner .phase {
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 0.18em;
-        opacity: 0.7;
-      }
-      .demo-banner .progress {
-        margin-top: 6px;
-        height: 3px;
-        background: rgba(255,255,255,0.1);
-        border-radius: 999px;
-        overflow: hidden;
-      }
-      .demo-banner .progress div {
-        height: 100%;
-        background: linear-gradient(90deg, #f59e0b, #ec4899);
-        transition: width 0.4s ease;
-      }
-
-      .icon-btn {
-        background: rgba(255,255,255,0.06);
-        border: 1px solid rgba(255,255,255,0.1);
-        color: #c9a8ff;
-        width: 32px;
-        height: 32px;
-        padding: 0;
-        font-size: 16px;
-        border-radius: 999px;
-        cursor: pointer;
-      }
-
-      .overlay {
-        position: fixed;
-        inset: 0;
-        background: rgba(5, 0, 16, 0.78);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        display: none;
-        align-items: center;
-        justify-content: center;
-        z-index: 50;
-        padding: 20px;
-      }
-      .overlay.show { display: flex; }
-      .modal {
-        width: 100%;
-        max-width: 380px;
-        background: linear-gradient(180deg, #1a0a36, #0b0b14);
-        border: 1px solid rgba(255,255,255,0.1);
-        border-radius: 22px;
-        padding: 26px;
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-        box-shadow: 0 20px 60px rgba(168,85,247,0.25);
-      }
-      .modal h2 {
-        font-size: 22px;
-        margin: 0 0 4px;
-        background: linear-gradient(135deg, #fff, #c9a8ff);
-        -webkit-background-clip: text;
-        background-clip: text;
-        color: transparent;
-      }
-      .modal .sub {
-        font-size: 12px;
-        color: rgba(245,233,255,0.55);
-        margin-bottom: 8px;
-      }
-      .modal label {
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 0.18em;
-        color: rgba(245,233,255,0.55);
-        margin-top: 6px;
-      }
-      .modal input[type="text"], .modal input[type="time"] {
-        background: rgba(255,255,255,0.07);
-        border: 1px solid rgba(255,255,255,0.12);
-        color: #f5e9ff;
-        padding: 10px 14px;
-        border-radius: 10px;
-        font-size: 15px;
-        font-family: inherit;
-        width: 100%;
-      }
-      .modal .row {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-      .modal .row input { flex: 1; }
-      .modal .full { width: 100%; margin-top: 4px; }
-      .modal .lang-picker { background: rgba(255,255,255,0.04); }
-      .modal .lang-picker button { font-size: 12px; padding: 6px 10px; }
-
-      footer {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        gap: 10px;
-        padding: 8px 0 16px;
-        flex-wrap: wrap;
-      }
-      button {
-        background: rgba(255, 255, 255, 0.08);
-        border: 1px solid rgba(255, 255, 255, 0.15);
-        color: #f5e9ff;
-        font-family: inherit;
-        font-size: 13px;
-        font-weight: 600;
-        padding: 12px 18px;
-        border-radius: 999px;
-        cursor: pointer;
-        backdrop-filter: blur(20px);
-        transition: all 0.15s ease;
-      }
-      button:active { transform: scale(0.96); }
-      button.primary {
-        background: linear-gradient(135deg, #a855f7, #6366f1);
-        border-color: transparent;
-        box-shadow: 0 4px 20px rgba(168, 85, 247, 0.4);
-      }
-      button.mic {
-        width: 64px;
-        height: 64px;
-        padding: 0;
-        font-size: 26px;
-        background: linear-gradient(135deg, #ec4899, #a855f7);
-        border-color: transparent;
-        box-shadow: 0 6px 24px rgba(236, 72, 153, 0.45);
-      }
-      button.mic.listening {
-        background: linear-gradient(135deg, #ef4444, #f59e0b);
-        animation: pulseBtn 1s ease-in-out infinite;
-      }
-      @keyframes pulseBtn {
-        0%, 100% { box-shadow: 0 6px 24px rgba(239, 68, 68, 0.45); }
-        50% { box-shadow: 0 6px 36px rgba(239, 68, 68, 0.9); }
-      }
-      button.muted {
-        background: rgba(239, 68, 68, 0.15);
-        border-color: rgba(239, 68, 68, 0.3);
-        color: #fca5a5;
-      }
-
-      #status {
-        font-size: 11px;
-        color: rgba(245, 233, 255, 0.45);
-        text-align: center;
-        min-height: 16px;
-        padding-bottom: 4px;
-      }
-      .dev-link {
-        position: absolute;
-        bottom: 8px;
-        right: 12px;
-        font-size: 10px;
-        color: rgba(245, 233, 255, 0.3);
-        text-decoration: none;
-        letter-spacing: 0.1em;
-      }
+      .demo-banner .phase { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.6; }
+      .demo-banner .progress { margin-top: 6px; height: 2px; background: rgba(255,255,255,0.08); border-radius: 99px; overflow: hidden; }
+      .demo-banner .progress div { height: 100%; background: linear-gradient(90deg, #f59e0b, #ec4899); transition: width 0.4s ease; }
     </style>
   </head>
   <body>
-    <header>
-      <span class="brand">AURA</span>
-      <div class="lang-picker" id="lang-picker">
-        <button data-lang="en" class="active">EN</button>
-        <button data-lang="hi">हिं</button>
-        <button data-lang="kn">ಕ</button>
-      </div>
-      <button id="settings-btn" class="icon-btn" title="settings">⚙︎</button>
-      <span class="status-dot" id="dot" title="watching"></span>
-    </header>
 
-    <!-- Onboarding modal -->
+    <!-- Onboarding sheet -->
     <div id="onboard-overlay" class="overlay">
-      <div class="modal">
+      <div class="sheet">
+        <div class="sheet-handle"></div>
         <h2>Welcome to AURA</h2>
-        <p class="sub">Three quick things and we're done.</p>
-        <label>Your name (optional)</label>
+        <p class="sub">Quick setup — takes 30 seconds.</p>
+        <span class="field-label">Your name (optional)</span>
         <input id="ob-name" type="text" placeholder="e.g. Anagha" />
-        <label>Preferred language</label>
+        <span class="field-label">Language</span>
         <div class="lang-picker" id="ob-lang">
           <button data-lang="en" class="active">English</button>
           <button data-lang="hi">हिन्दी</button>
           <button data-lang="kn">ಕನ್ನಡ</button>
         </div>
-        <label>Quiet hours</label>
+        <span class="field-label">Quiet hours</span>
         <div class="row">
           <input id="ob-q-start" type="time" value="22:00" />
-          <span class="sub">to</span>
+          <span style="font-size:12px;color:var(--ink-3)">to</span>
           <input id="ob-q-end" type="time" value="06:30" />
         </div>
-        <button id="ob-done" class="primary full">Let's go</button>
-        <button id="ob-skip" class="ghost full">Skip for now</button>
+        <button id="ob-done" class="sheet-btn primary">Let's go →</button>
+        <button id="ob-skip" class="sheet-btn ghost">Skip for now</button>
       </div>
     </div>
 
-    <!-- Settings drawer -->
+    <!-- Settings sheet -->
     <div id="settings-overlay" class="overlay">
-      <div class="modal">
+      <div class="sheet">
+        <div class="sheet-handle"></div>
         <h2>Settings</h2>
-        <label>Your name</label>
+        <span class="field-label">Your name</span>
         <input id="set-name" type="text" />
-        <label>Language</label>
+        <span class="field-label">Language</span>
         <div class="lang-picker" id="set-lang">
           <button data-lang="en">English</button>
           <button data-lang="hi">हिन्दी</button>
           <button data-lang="kn">ಕನ್ನಡ</button>
         </div>
-        <label>Quiet hours</label>
+        <span class="field-label">Quiet hours</span>
         <div class="row">
           <input id="set-q-start" type="time" />
-          <span class="sub">to</span>
+          <span style="font-size:12px;color:var(--ink-3)">to</span>
           <input id="set-q-end" type="time" />
         </div>
-        <label>City (for weather)</label>
+        <span class="field-label">City (weather)</span>
         <input id="set-city" type="text" placeholder="e.g. Bangalore" />
-        <button id="set-save" class="primary full">Save</button>
-        <button id="set-close" class="ghost full">Close</button>
+        <button id="set-save" class="sheet-btn primary">Save changes</button>
+        <button id="set-close" class="sheet-btn ghost">Close</button>
       </div>
     </div>
 
-    <svg style="position: absolute; width: 0; height: 0;">
-      <filter id="plasma-filter">
-        <feTurbulence type="fractalNoise" baseFrequency="0.01" numOctaves="3" result="noise" />
-        <feDisplacementMap in="SourceGraphic" in2="noise" scale="30" />
-      </filter>
-    </svg>
+    <!-- App root -->
+    <div class="app-root">
 
-    <div class="phone">
-      <div class="status-bar">
-        <div class="brand">AURA</div>
-        <div id="connection-status" class="tag good">LINKED</div>
+      <!-- Header -->
+      <header class="app-header">
+        <span class="wordmark">AURA</span>
+        <div class="header-actions">
+          <div class="lang-picker" id="lang-picker">
+            <button data-lang="en" class="active">EN</button>
+            <button data-lang="hi">हिं</button>
+            <button data-lang="kn">ಕ</button>
+          </div>
+          <button id="settings-btn" class="icon-btn" title="Settings">⚙︎</button>
+          <div class="status-pill">
+            <span class="status-dot" id="dot"></span>
+            <span id="status-label">Online</span>
+          </div>
+        </div>
+      </header>
+
+      <!-- Orb Stage -->
+      <div class="orb-stage">
+        <div class="orb-wrap" id="orb-wrap">
+          <div class="orb-ring-outer"></div>
+          <div class="orb-ring-inner"></div>
+          <div id="orb" class="orb"></div>
+        </div>
+        <div class="visualizer" id="viz">
+          <div class="v-bar" style="animation-delay:0s"></div>
+          <div class="v-bar" style="animation-delay:0.12s"></div>
+          <div class="v-bar" style="animation-delay:0.24s"></div>
+          <div class="v-bar" style="animation-delay:0.08s"></div>
+          <div class="v-bar" style="animation-delay:0.18s"></div>
+          <div class="v-bar" style="animation-delay:0.32s"></div>
+          <div class="v-bar" style="animation-delay:0.04s"></div>
+        </div>
       </div>
 
-      <main>
-        <div class="orb-container">
-          <div class="orb-portal">
-            <div class="orb-ring"></div>
-            <div id="orb" class="orb"></div>
-          </div>
-          <div class="visualizer" id="viz">
-            <div class="v-bar"></div>
-            <div class="v-bar" style="animation-delay: 0.1s"></div>
-            <div class="v-bar" style="animation-delay: 0.2s"></div>
-            <div class="v-bar" style="animation-delay: 0.3s"></div>
-            <div class="v-bar" style="animation-delay: 0.4s"></div>
-          </div>
-        </div>
+      <!-- Message area -->
+      <div class="message-area">
+        <div id="msg" class="aura-msg">Synchronization complete. Ready.</div>
+        <div id="transcript" class="aura-transcript"></div>
+        <div id="demo-banner" class="demo-banner"></div>
+        <div id="quiet-banner" class="quiet-banner">🌙 Quiet hours active</div>
+      </div>
 
-        <div class="message-box">
-          <div id="msg" class="message-text">AURA synchronization complete.</div>
-          <div id="transcript" class="meta-text">Standing by...</div>
+      <!-- Metrics strip -->
+      <div class="metrics-strip">
+        <div class="metric-card accent">
+          <div class="metric-label">Cognitive</div>
+          <div class="metric-value" id="score-val">84</div>
+          <div class="metric-sub">score</div>
         </div>
+        <div class="metric-card">
+          <div class="metric-label">Next event</div>
+          <div class="metric-value" style="font-size:13px;letter-spacing:0" id="next-event">—</div>
+          <div class="metric-sub" id="ago">—</div>
+        </div>
+      </div>
 
-        <div class="glass-panel">
-          <div class="score-row">
-            <div class="meta-text">COGNITIVE INDEX</div>
-            <div class="score-num" id="score-val">84</div>
-          </div>
-          
-          <div class="button-grid">
-            <button id="ptt" class="mic primary">
-              <span>Push to Talk</span>
-            </button>
-            <button onclick="runBrief()">
-              <span>Briefing</span>
-            </button>
-            <button onclick="location.href='/'">
-              <span>Activity</span>
-            </button>
-          </div>
+      <!-- Control panel -->
+      <div class="control-panel">
+        <button id="ptt" class="ptt-btn">
+          <span class="ptt-icon">🎙</span>
+          <span id="ptt-label">Hold to speak</span>
+        </button>
+        <div class="btn-row">
+          <button class="sec-btn" onclick="runBrief()">
+            <span class="sec-btn-icon">☀️</span> Morning brief
+          </button>
+          <button class="sec-btn" id="wake-btn">
+            <span class="sec-btn-icon">👂</span> Hey AURA: off
+          </button>
+          <button class="sec-btn" id="test-btn">
+            <span class="sec-btn-icon">🔊</span> Test voice
+          </button>
+          <button class="sec-btn" id="mute-btn">
+            <span class="sec-btn-icon">🔇</span> Mute
+          </button>
         </div>
-      </main>
-    </div>
+        <div class="btn-row" style="grid-template-columns:1fr">
+          <button class="sec-btn" id="demo-btn">
+            <span class="sec-btn-icon">🎭</span> AURA demos herself
+          </button>
+        </div>
+        <div id="status" class="status-line"></div>
+      </div>
+
+    </div><!-- /app-root -->
+
 
     <script>
       const $ = (s) => document.querySelector(s);
+
       const TUNNEL_HEADERS = { "bypass-tunnel-reminder": "true" };
       const CACHE_PREFIX = "aura-cache:";
 
