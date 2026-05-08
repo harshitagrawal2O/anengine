@@ -1,5 +1,5 @@
 # AURA
-Last updated: May 9, 2026 (Final Submission Build)
+Last updated: May 8, 2026 (Final Submission Build)
 
 > **The assistant that talks first.** Backed by a 2026 decision-theoretic framework. Runs on your laptop. Speaks only when staying silent would be worse.
 
