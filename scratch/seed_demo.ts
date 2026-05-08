@@ -1,11 +1,8 @@
 
-import { DatabaseSync } from "node:sqlite";
-import { config } from "../src/config.js";
-
-const db = new DatabaseSync(config.paths.db);
+import { db, setSetting } from "../src/db.js";
 
 function seed() {
-  console.log("Seeding demo data...");
+  console.log("Seeding demo data via internal PRISM DB wrapper...");
 
   const now = new Date();
   const today = now.toISOString().split("T")[0];
@@ -30,9 +27,8 @@ function seed() {
     db.prepare("INSERT INTO steps (date, hour, count) VALUES (?, ?, ?)").run(today, h, count);
   }
 
-  // 3. Health Data (HRV / Stress)
-  db.prepare("INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
-    .run("hrv_stress", "0.85", now.toISOString()); // High stress
+  // 3. Health Data (HRV / Stress) - Using internal helper
+  setSetting("hrv_stress", "0.85");
 
   // 4. Memory / Notes
   db.prepare("DELETE FROM notes").run();
@@ -45,7 +41,7 @@ function seed() {
     db.prepare("INSERT INTO notes (ts, body) VALUES (?, ?)").run(new Date().toISOString(), n);
   }
 
-  console.log("Success: Demo data seeded.");
+  console.log("Success: Demo data seeded and PRISM internal tables updated.");
 }
 
 seed();
