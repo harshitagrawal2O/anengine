@@ -4,7 +4,7 @@
 > **Project:** Samsung PRISM Hackathon — Proactive Ambient Agent
 > **Branch:** `samsung_hack_01-apk-build-wip` (worktree of main)
 > **Runtime:** Node.js 22+ (experimental SQLite), TypeScript 5.7, tsx
-> **Status:** Backend ✅ COMPLETE. Frontend (PWA) ✅ COMPLETE. APK build 🔄 IN PROGRESS — keystore generated, Gradle wired, `./gradlew assembleRelease` is the single remaining step.
+> **Status:** Backend ✅ COMPLETE. Frontend (PWA) ✅ COMPLETE. APK ✅ BUILT & SIGNED — see [`release/aura-v1.0-release.apk`](./release/aura-v1.0-release.apk) (package `com.ngrok.aura.twa`; signing cert SHA256 verified to match `public/.well-known/assetlinks.json`). ⚠️ The APK is hardcoded to a **build-time tunnel URL that is now dead** — to load it on a device you must rebuild against a live HTTPS endpoint (see §6.1) or deploy the backend to a stable host. This is the one true open item.
 
 ---
 
@@ -14,15 +14,14 @@
 
 | # | Task | Status | Where |
 |---|---|---|---|
-| 1 | Confirm backend runs (`npm run dev` in worktree) | ⬜ | `d:\SAMSUNG_PRISM\p1\samsung_hack_01-apk-build-wip` |
-| 2 | Start tunnel & note the public HTTPS URL | ⬜ | `npm run tunnel` (ngrok) |
-| 3 | Update `twa-manifest.json` host + URLs to current tunnel URL | ⬜ | `android-build/aura-twa/twa-manifest.json` |
-| 4 | Update `public/.well-known/assetlinks.json` fingerprint to match keystore | ⬜ | `public/.well-known/assetlinks.json` |
-| 5 | Run `./gradlew assembleRelease` inside `android-build/aura-twa/` | ⬜ | Needs JDK 17+ in PATH |
-| 6 | APK output → `android-build/aura-twa/app/build/outputs/apk/release/app-release.apk` | ⬜ | Install on device |
-| 7 | Test: open APK on Android → AURA loads, backend responds | ⬜ | |
-| 8 | Seed demo data (`npm run reseed`) | ⬜ | |
-| 9 | Record demo video using `simple.html` PWA + auto-demo button | ⬜ | |
+| 1 | Backend runs (`npm run start`) | ✅ verified 2026-06-01 | repo root |
+| 2 | Eval is deterministic (`npm run eval`) | ✅ verified (fixed seed + anchor) | `eval/results.json` |
+| 3 | PWA serves (`/`, `/simple`, `/dev`, `/activity`, `/metrics`) | ✅ all 200 | `public/` |
+| 4 | Auto-demo runs end-to-end with live gate values | ✅ verified | `/api/demo/start` |
+| 5 | APK built & signed | ✅ done | [`release/aura-v1.0-release.apk`](./release/aura-v1.0-release.apk) |
+| 6 | `assetlinks.json` package + fingerprint match the APK | ✅ corrected & verified | `public/.well-known/assetlinks.json` |
+| 7 | **APK loads on a device against a LIVE endpoint** | ⬜ **open** — APK points at a dead tunnel; rebuild against a live URL or deploy backend (see §6.1) | needs JDK 17+ & restored `android.keystore` |
+| 8 | Record demo video using `/simple` + auto-demo button | ⬜ (do in-browser; no device needed) | |
 
 ---
 
@@ -506,8 +505,12 @@ When switching to ngrok, you can keep this or change it. Changing it means a dif
 9. **The `assetlinks.json` fingerprint is already correct** (matches `android.keystore`). Don't regenerate the keystore unless you also update `assetlinks.json`.
 10. **Ngrok authtoken** is set in `ngrok.yml` — just run `npm run tunnel`.
 
-## ? Final Build Complete (2026-05-08)
+## Final Build Status (verified 2026-06-01)
 
-- **Signed APK**: [app-release.apk](file:///d:/SAMSUNG_PRISM/p1/samsung_hack_01-apk-build-wip/android-build/aura-twa/app/build/outputs/apk/release/app-release.apk)
-- **Tunnel**: https://false-busload-squabble.ngrok-free.dev
-- **Status**: Backend running, APK signed, resources fixed. Ready for submission.
+- **Signed APK**: [`release/aura-v1.0-release.apk`](./release/aura-v1.0-release.apk) — valid, signed (v1 JAR signing: `META-INF/CERT.RSA`).
+  - Package: `com.ngrok.aura.twa`
+  - Signing cert SHA256: `93:27:22:29:B4:EB:…:1C:9B:E1:7C` — **verified** to match `public/.well-known/assetlinks.json`.
+  - `assetlinks.json` `package_name` was corrected from a stale `com.trycloudflare.*` value to `com.ngrok.aura.twa` so Digital Asset Link verification can succeed.
+- **Backend / PWA**: ✅ run `npm run start`, open `/simple`. Eval is deterministic (`npm run eval`).
+- **⚠️ Known open item — the APK cannot connect as-shipped:** it was built pointing at the ephemeral tunnel `false-busload-squabble.ngrok-free.dev`, which no longer resolves. Free ngrok issues a new random host each session, so that exact host cannot be revived. To make the APK load on a device you must **rebuild** with a live URL (see §6.1) — which also requires restoring `android.keystore` (not committed) — **or** deploy the backend to a stable HTTPS host (Render/Railway/Fly) and rebuild once against that domain.
+- **For judges without a device:** the full product runs in any browser at `http://localhost:3000/simple`; the APK is a thin TWA wrapper over that same PWA.

@@ -1,8 +1,9 @@
 {
-  "generated_at": "2026-05-08T12:10:49.904Z",
+  "generated_at": "2026-06-01T03:28:20.388Z",
   "config": {
     "days": 60,
     "rng_seed": 42,
+    "eval_anchor": "2026-05-08",
     "total_moments": 2796,
     "ground_truth_useful": 303,
     "burst_schedule": "weekday: 4 bursts/day (45% morning 7-10am, 35% EOD 4-7pm, 20% mid-day); weekend: 3 bursts/day random; burst size 3-5",
@@ -105,6 +106,26 @@
       "f1": 0.39263803680981596,
       "false_alarm_rate": 0.08864821500200562,
       "missed_help_rate": 0.5775577557755776
+    }
+  ],
+  "ablation": [
+    {
+      "layer": "Gate (PRISM)         [C→D]",
+      "d_nudges_per_day": -5.47,
+      "d_false_alarm_pct": -11.6,
+      "d_f1": 0.047
+    },
+    {
+      "layer": "+ Edge-Calibration   [D→E]",
+      "d_nudges_per_day": -0.27,
+      "d_false_alarm_pct": -0.5,
+      "d_f1": 0
+    },
+    {
+      "layer": "+ Adversary critic   [E→F]",
+      "d_nudges_per_day": -0.53,
+      "d_false_alarm_pct": -1,
+      "d_f1": 0.001
     }
   ],
   "headline": {

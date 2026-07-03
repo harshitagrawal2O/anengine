@@ -133,8 +133,10 @@ export async function route(transcriptRaw: string, lang: Lang = "en"): Promise<I
   };
 
   // ---- DND ----
+  // Note: "mute" is intentionally NOT here — it controls audio (see Volume below).
+  // DND is for "don't disturb / quiet / leave me alone / silence me".
   const dnd = transcript.match(
-    /(don'?t disturb|do not disturb|mute|silence|leave me alone|quiet)\s*(me)?\s*(for)?\s*(\d+)?\s*(min|minute|minutes|hour|hours|hr|hrs)?/i,
+    /(don'?t disturb|do not disturb|leave me alone|silence me|be quiet|quiet)\s*(me)?\s*(for)?\s*(\d+)?\s*(min|minute|minutes|hour|hours|hr|hrs)?/i,
   );
   if (dnd) {
     const num = Number(dnd[4] ?? 30);
@@ -208,22 +210,60 @@ export async function route(transcriptRaw: string, lang: Lang = "en"): Promise<I
   }
 
   // ---- Timer ----
-  const timer = transcript.match(/(set|start)\s+(a\s+)?(\d+)\s*(min|minute|minutes|sec|second|seconds)\s*(timer)?(\s+for\s+(.+))?/);
-  if (timer) {
-    const n = Number(timer[3]);
-    const unit = (timer[4] ?? "min").toLowerCase();
+  // Accepts both word orders: "set a 5 minute timer", "set a timer for 5 minutes",
+  // "start 30 second timer for tea". Duration is extracted from anywhere in the
+  // phrase; an optional label is whatever follows "for <X>" that is NOT the duration.
+  const durMatch = transcript.match(/(\d+)\s*(min|minute|minutes|sec|second|seconds)\b/);
+  const wantsTimer =
+    /\btimer\b/.test(transcript) ||
+    /(set|start)\s+(a\s+)?\d+\s*(min|minute|minutes|sec|second|seconds)\b/.test(transcript);
+  if (wantsTimer && durMatch) {
+    const n = Number(durMatch[1]);
+    const unit = durMatch[2].toLowerCase();
+    const unitWord = unit.startsWith("sec") ? "sec" : "min";
     const minutes = unit.startsWith("sec") ? n / 60 : n;
-    const label = (timer[7] ?? `timer`).trim();
+    // Label = text after "for X" where X is not the duration phrase itself.
+    const labelMatch = transcript.match(
+      /\bfor\s+(?!\d+\s*(?:min|minute|minutes|sec|second|seconds)\b)(.+)$/,
+    );
+    const label = labelMatch ? labelMatch[1].trim() : "timer";
     scheduleTimer(label, minutes);
+    const tail = label !== "timer" ? ` (${label})` : "";
     return log({
       intent: "timer",
       reply: pickReply(
         lang,
-        `Timer set for ${n} ${unit}.`,
-        `${n} ${unit} का टाइमर सेट किया।`,
-        `${n} ${unit} ಟೈಮರ್ ಸೆಟ್ ಮಾಡಿದೆ.`,
+        `Timer set for ${n} ${unitWord}${tail}.`,
+        `${n} ${unitWord} का टाइमर सेट किया${tail}।`,
+        `${n} ${unitWord} ಟೈಮರ್ ಸೆಟ್ ಮಾಡಿದೆ${tail}.`,
       ),
     });
+  }
+
+  // ---- Unit conversion ----
+  // "convert 10 km to miles", "10 kg to lb", "20 c to f". Plurals are trimmed
+  // (miles → mile) so they match convertUnits()'s normaliser.
+  const conv = transcript.match(
+    /(?:convert\s+)?(-?\d+(?:\.\d+)?)\s*([a-z°]+)\s+(?:to|in|into)\s+([a-z°]+)/,
+  );
+  if (conv) {
+    const n = Number(conv[1]);
+    const from = conv[2].replace(/s$/, "");
+    const to = conv[3].replace(/s$/, "");
+    const result = convertUnits(n, from, to);
+    if (result !== null) {
+      const rounded = Math.round(result * 100) / 100;
+      return log({
+        intent: "convert",
+        reply: pickReply(
+          lang,
+          `${conv[1]} ${conv[2]} is ${rounded} ${conv[3]}.`,
+          `${conv[1]} ${conv[2]} = ${rounded} ${conv[3]}।`,
+          `${conv[1]} ${conv[2]} = ${rounded} ${conv[3]}.`,
+        ),
+        side_effect: { result: rounded, from: conv[2], to: conv[3] },
+      });
+    }
   }
 
   // ---- Volume ----
@@ -235,7 +275,7 @@ export async function route(transcriptRaw: string, lang: Lang = "en"): Promise<I
     const r = adjustVolume(-15);
     return log({ intent: "volume_down", reply: `Volume ${r.pct}.` });
   }
-  if (/(mute|silence the speakers)/.test(transcript)) {
+  if (/(\bmute\b|silence the speakers)/.test(transcript)) {
     muteVolume();
     return log({ intent: "mute", reply: pickReply(lang, "Muted.", "म्यूट कर दिया।", "ಮ್ಯೂಟ್ ಮಾಡಿದೆ.") });
   }
@@ -266,7 +306,9 @@ export async function route(transcriptRaw: string, lang: Lang = "en"): Promise<I
   const wiki = transcript.match(
     /^(tell me about|wikipedia|wiki|who is|what is|whats|what'?s|who'?s)\s+(.+)/,
   );
-  if (wiki) {
+  // Self-referential topics ("tell me about yourself/you/aura") belong to the
+  // identity handler below — don't look them up on Wikipedia.
+  if (wiki && !/^(yourself|you|aura|me|myself)\b/.test(wiki[2])) {
     const topic = wiki[2];
     const r = await wikiSummary(topic);
     if (r.ok) return log({ intent: "wiki", reply: r.text, side_effect: { url: r.url } });
@@ -329,7 +371,7 @@ export async function route(transcriptRaw: string, lang: Lang = "en"): Promise<I
   }
 
   // ---- Status / Score ----
-  if (/(score|readiness|how am i|how'?s my day)/.test(transcript)) {
+  if (/(score|readiness|how am i|how'?s my day|how is my day)/.test(transcript)) {
     const score = computeScore();
     return log({
       intent: "score",
@@ -417,6 +459,24 @@ export async function route(transcriptRaw: string, lang: Lang = "en"): Promise<I
         reply: pickReply(lang, `Scheduled: ${title} for ${displayTime}.`, `शेड्यूल किया: ${title}, ${displayTime} के लिए।`, `ನಿಗದಿಪಡಿಸಲಾಗಿದೆ: ${title}, ${displayTime} ಕ್ಕ್ಕೆ.`),
       });
     }
+  }
+
+  // ---- Reminder (untimed) ----
+  // Timed reminders ("remind me about X at 5pm") are caught above by Add Event.
+  // Anything left ("remind me to call mom") is saved as a reminder note.
+  const remindMatch = transcript.match(/^remind me (?:to|about|that)\s+(.+)/);
+  if (remindMatch) {
+    const body = `Reminder: ${remindMatch[1]}`;
+    db.prepare("INSERT INTO notes (ts, body) VALUES (?, ?)").run(new Date().toISOString(), body);
+    return log({
+      intent: "reminder",
+      reply: pickReply(
+        lang,
+        `I'll remind you: ${remindMatch[1]}.`,
+        `मैं याद दिलाऊँगी: ${remindMatch[1]}।`,
+        `ನಾನು ನೆನಪಿಸುತ್ತೇನೆ: ${remindMatch[1]}.`,
+      ),
+    });
   }
 
   // ---- Steps ----

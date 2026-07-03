@@ -18,7 +18,7 @@ Most assistants are wrong in opposite directions:
 - 🚨 **Notification spammers** interrupt you constantly.
 - 🪨 **Voice assistants** (Siri, ChatGPT, Alexa) stay silent until you wake them.
 
-AURA sits in the missing middle. Every potential nudge runs through a cost-sensitive decision-theoretic gate (PRISM, 2026), an always-on adversarial critic, and — when borderline — a slow-mode counterfactual review. Result: **87% fewer notifications than always-speak baselines, F1 +81%.**
+AURA sits in the missing middle. Every potential nudge runs through a cost-sensitive decision-theoretic gate (PRISM, 2026), an always-on adversarial critic, and — when borderline — a slow-mode counterfactual review. Result: **88% fewer notifications than always-speak baselines, F1 +101%.**
 
 The pitch in one line:
 
@@ -151,21 +151,34 @@ Every step writes to an HMAC-chained audit log. Open `/dev` to inspect any decis
 
 ## Evaluation
 
-We ran a 60-day synthetic stream of 2,812 potential nudge moments (11.3% ground-truth-useful) through 6 strategies. See [`src/eval/harness.ts`](src/eval/harness.ts) and [`eval/results.json`](eval/results.json).
+We ran a 60-day synthetic stream of 2,796 potential nudge moments (10.8% ground-truth-useful) through 6 strategies. The run is **fully deterministic** — a fixed RNG seed (42) and a fixed date anchor mean these numbers reproduce byte-for-byte every time. See [`src/eval/harness.ts`](src/eval/harness.ts) and [`eval/results.json`](eval/results.json).
 
 | Strategy | Nudges/day | False-alarm | F1 |
 |---|---:|---:|---:|
-| Always-speak | 46.9 | 100.0% | 0.203 |
+| Always-speak | 46.6 | 100.0% | 0.196 |
 | Never-speak | 0.0 | 0% | 0.000 |
-| Fixed threshold | 12.7 | 22.9% | 0.353 |
-| PRISM only (baseline) | 7.0 | 11.3% | 0.370 |
-| **+ Edge-Calibration + Adversary (us)** | **6.1** | **9.6%** | **0.368** |
+| Fixed threshold | 12.1 | 22.0% | 0.344 |
+| PRISM only (baseline) | 6.6 | 10.4% | 0.391 |
+| + Edge-Calibration | 6.4 | 9.9% | 0.392 |
+| **+ Adversary (us, full stack)** | **5.8** | **8.9%** | **0.393** |
 
 **Headline:**
-- vs always-speak: **87% fewer notifications, 90% lower false alarm, F1 +81%**
-- vs fixed-threshold: **52% fewer notifications, 58% lower false alarm, F1 +4.5%**
+- vs always-speak: **88% fewer notifications, 91% lower false alarm, F1 +101%**
+- vs fixed-threshold: **52% fewer notifications, 60% lower false alarm, F1 +14%**
 
-Run it yourself:
+### Layer-by-layer ablation
+
+How much each PRISM layer contributes, isolating one change at a time (Δ vs the layer above):
+
+| Layer added | Δ nudges/day | Δ false-alarm | Δ F1 |
+|---|---:|---:|---:|
+| Gate (PRISM) `[C→D]` | −5.47 | −11.6pp | +0.047 |
+| + Edge-Calibration `[D→E]` | −0.27 | −0.5pp | +0.001 |
+| + Adversary critic `[E→F]` | −0.53 | −1.0pp | +0.001 |
+
+The decision-theoretic gate does the heavy lifting; calibration and the adversary each trim a further slice of false alarms on top. Printed by `npm run eval` and saved to `eval/results.json`.
+
+Run it yourself (same numbers every time):
 
 ```bash
 npm run eval

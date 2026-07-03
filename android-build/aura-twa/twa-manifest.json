@@ -17,7 +17,7 @@
   "maskableIconUrl": "https://false-busload-squabble.ngrok-free.dev/icon-512.png",
   "splashScreenFadeOutDuration": 300,
   "signingKey": {
-    "path": "d:/SAMSUNG_PRISM/p1/samsung_hack_01-apk-build-wip/android-build/aura-twa/android.keystore",
+    "path": "./android.keystore",
     "alias": "android"
   },
   "appVersionName": "1",

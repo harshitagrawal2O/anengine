@@ -191,9 +191,16 @@ function calibratedCosts(
 //   weekday: 4 bursts/day — 45% morning (7-10am), 35% EOD (4-7pm), 20% mid-day
 //   weekend: 3 bursts/day — uniform random 8am-8pm
 // Burst size: 3-5 moments spaced 2 min apart.
+// Deterministic anchor: the 60-day window ENDS on this fixed date rather than
+// `new Date()`. Combined with the seeded RNG (seed 42), this makes the corpus —
+// and therefore every reported metric — byte-identical on every run, so the
+// README table reproduces exactly. Override with EVAL_ANCHOR=YYYY-MM-DD if you
+// need a different window; document why and regenerate eval/results.json.
+const EVAL_ANCHOR = process.env.EVAL_ANCHOR ?? "2026-05-08";
+
 function generateMoments(days = 60): Moment[] {
   const moments: Moment[] = [];
-  const start = new Date();
+  const start = new Date(`${EVAL_ANCHOR}T00:00:00`);
   start.setDate(start.getDate() - days);
   start.setHours(0, 0, 0, 0);
 
@@ -549,6 +556,33 @@ function main() {
   console.log(`    false-alarm rate: ${fmtPct(D.false_alarm_rate)} → ${fmtPct(E.false_alarm_rate)}  (${pctDelta(E.false_alarm_rate, D.false_alarm_rate).toFixed(1)}% lower)`);
   console.log(`    F1:               ${fmtN(D.f1, 3)} → ${fmtN(E.f1, 3)}  (${pctRise(E.f1, D.f1).toFixed(1)}%)`);
 
+  // ── Layer-by-layer ablation ──────────────────────────────────────────────
+  // Marginal contribution of each PRISM layer, isolating one change at a time:
+  //   C → D : the decision-theoretic gate itself (vs a fixed heuristic)
+  //   D → E : + Edge-PRISM on-device cost calibration
+  //   E → F : + always-on adversary critic
+  // Each row reports the delta the layer ADDS on top of the row above it.
+  const ablation = [
+    { layer: "Gate (PRISM)         [C→D]", from: C, to: D },
+    { layer: "+ Edge-Calibration   [D→E]", from: D, to: E },
+    { layer: "+ Adversary critic   [E→F]", from: E, to: F },
+  ].map(({ layer, from, to }) => ({
+    layer,
+    d_nudges_per_day: Number((to.per_day - from.per_day).toFixed(2)),
+    d_false_alarm_pct: Number(((to.false_alarm_rate - from.false_alarm_rate) * 100).toFixed(1)),
+    d_f1: Number((to.f1 - from.f1).toFixed(3)),
+  }));
+
+  console.log(`\n[ablation] marginal contribution of each layer (Δ vs the layer above):`);
+  console.log("┌" + "─".repeat(30) + "┬" + "─".repeat(14) + "┬" + "─".repeat(16) + "┬" + "─".repeat(10) + "┐");
+  console.log("│ " + pad("Layer added", 28) + " │ " + pad("Δ nudges/day", 12) + " │ " + pad("Δ false-alarm", 14) + " │ " + pad("Δ F1", 8) + " │");
+  console.log("├" + "─".repeat(30) + "┼" + "─".repeat(14) + "┼" + "─".repeat(16) + "┼" + "─".repeat(10) + "┤");
+  for (const a of ablation) {
+    const sign = (n: number, suffix = "") => (n >= 0 ? "+" : "") + n + suffix;
+    console.log("│ " + pad(a.layer, 28) + " │ " + pad(sign(a.d_nudges_per_day), 12) + " │ " + pad(sign(a.d_false_alarm_pct, "pp"), 14) + " │ " + pad(sign(a.d_f1), 8) + " │");
+  }
+  console.log("└" + "─".repeat(30) + "┴" + "─".repeat(14) + "┴" + "─".repeat(16) + "┴" + "─".repeat(10) + "┘");
+
   // Write JSON for the deck slide.
   mkdirSync(resolve(ROOT, "eval"), { recursive: true });
   const out = {
@@ -556,6 +590,7 @@ function main() {
     config: {
       days: DAYS,
       rng_seed: 42,
+      eval_anchor: EVAL_ANCHOR,
       total_moments: moments.length,
       ground_truth_useful: totalUseful,
       burst_schedule: "weekday: 4 bursts/day (45% morning 7-10am, 35% EOD 4-7pm, 20% mid-day); weekend: 3 bursts/day random; burst size 3-5",
@@ -563,6 +598,7 @@ function main() {
       calibration_model: "production-faithful: per skill×hour-bucket, c_fa *= (1+blend·dismiss_rate), c_fn *= (1+blend·accept_rate); blend ramps 0→1 over [5,20] samples; mirrors src/pi-engine/calibration.ts",
     },
     results: results.map((x) => ({ strategy: x.strategy, ...x.r })),
+    ablation,
     headline: {
       vs_always_speak: {
         nudge_reduction_pct: Number(pctDelta(F.per_day, A.per_day).toFixed(1)),

@@ -45,11 +45,11 @@ import { DEMO_SCRIPT, type DemoStep } from "./script.js";
  * Update this object whenever the committed eval results change significantly.
  */
 const DEFAULT_FALLBACKS: Record<string, string> = {
-  false_alarm_reduction_vs_always_speak:    "91",  // 90.7 % → rounded
-  false_alarm_reduction_vs_fixed_threshold: "60",  // 60.0 % → rounded
-  nudges_per_day_aura:                       "6",  // 5.97  → rounded
-  nudges_per_day_always_speak:              "41",  // 41.0  → rounded
-  f1_improvement_pct_vs_always_speak:      "106",  // 105.5 % → rounded
+  false_alarm_reduction_vs_always_speak:    "91",  // 91.1 % → rounded
+  false_alarm_reduction_vs_fixed_threshold: "60",  // 59.7 % → rounded
+  nudges_per_day_aura:                       "6",  // 5.82  → rounded
+  nudges_per_day_always_speak:              "47",  // 46.60 → rounded
+  f1_improvement_pct_vs_always_speak:      "101",  // 100.8 % → rounded
 };
 
 // Range-expression fallbacks used when a SPECIFIC key is absent inside a valid

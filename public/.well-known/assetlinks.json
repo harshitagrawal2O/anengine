@@ -3,7 +3,7 @@
     "relation": ["delegate_permission/common.handle_all_urls"],
     "target": {
       "namespace": "android_app",
-      "package_name": "com.trycloudflare.abraham_wage_grace_harold.twa",
+      "package_name": "com.ngrok.aura.twa",
       "sha256_cert_fingerprints": [
         "93:27:22:29:B4:EB:A0:1B:26:1A:06:D9:A7:2D:91:69:1E:19:D6:D0:6F:0C:B9:C3:56:75:E9:39:1C:9B:E1:7C"
       ]

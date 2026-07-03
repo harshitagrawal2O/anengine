@@ -21,6 +21,8 @@ import { startDemo, stopDemo, getDemoStatus } from "./demo/runner.js";
 import { shouldIntervene, type GateContext, type ProposedAction } from "./pi-engine/gate.js";
 import { readHrvStress } from "./pi-engine/fusion.js";
 import simulateRouter from "./server/simulate.js";
+import { runAgent } from "./agent/loop.js";
+import { planBrain } from "./agent/host.js";
 
 // ── Production metrics counters ──────────────────────────────────────────────
 const METRICS = {
@@ -456,6 +458,35 @@ export function createServer(): express.Express {
     speak(result.reply);
     res.json(result);
   }));
+
+  // ---- Agent ("The Brain") — local-Llama ReAct loop over the tool registry ----
+  // Reasons step-by-step and calls tools. Falls back to the deterministic intent
+  // router when the local model is unreachable, so it degrades gracefully.
+  app.post("/api/agent", sayLimiter, wrap(async (req, res) => {
+    const goal = String(req.body?.goal ?? req.body?.transcript ?? "").trim().slice(0, 2000);
+    if (!goal) {
+      res.status(400).json({ error: "goal required" });
+      return;
+    }
+    const langRaw = req.body?.lang;
+    const lang: Lang = isLang(langRaw) ? langRaw : "en";
+
+    const run = await runAgent(goal, lang);
+    if (!run.ok && (run.reason === "ollama_not_configured" || run.reason === "llm_unreachable")) {
+      // Graceful degradation: no local brain available → deterministic intents.
+      const fallback = await routeIntent(goal, lang);
+      speak(fallback.reply);
+      res.json({ mode: "intent_fallback", reply: fallback.reply, intent: fallback.intent, agent: run });
+      return;
+    }
+    speak(run.answer);
+    res.json({ mode: "agent", reply: run.answer, steps: run.steps, model: run.model, reason: run.reason });
+  }));
+
+  // ---- Host / brain info — what hardware + model AURA is running on ----
+  app.get("/api/host", (_req, res) => {
+    res.json(planBrain(process.env.OLLAMA_MODEL));
+  });
 
   app.get("/api/quiet", (_req, res) => {
     res.json(isInQuietBlock());
