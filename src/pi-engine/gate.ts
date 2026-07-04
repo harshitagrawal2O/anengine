@@ -119,7 +119,10 @@ export function shouldIntervene(
   // τ (tau): gate fires only when utility = p_need × p_accept exceeds this threshold.
   // With calibrated costs, τ adapts to the user's revealed preferences over time:
   // frequent dismissals → higher c_fa → higher τ → gate speaks less often.
-  const tau = c_fa / (c_fa + c_fn);
+  // Guard against a degenerate 0/0 → NaN if both calibrated costs ever hit zero
+  // (a NaN τ makes every comparison below false, silently disabling the gate).
+  const costSum = c_fa + c_fn;
+  const tau = costSum > 0 ? c_fa / costSum : 0.5;
   const utility = p_need * p_accept;
 
   const calibration_status = cal.status;

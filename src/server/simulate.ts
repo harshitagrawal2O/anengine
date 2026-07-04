@@ -29,7 +29,9 @@ router.post("/reset", (_req, res) => {
     runAtomic(() => {
       db.exec("DELETE FROM steps");
       db.exec("DELETE FROM skill_runs");
-      db.exec("DELETE FROM audit_log");
+      // NOTE: audit_log is intentionally NOT cleared — it is an append-only,
+      // HMAC-chained tamper-evident record. Wiping it would break the chain's
+      // whole purpose. The reset itself is recorded as an audit entry below.
       db.exec("DELETE FROM events");
       db.exec("DELETE FROM calendar");
       db.exec("DELETE FROM timers");
@@ -41,7 +43,7 @@ router.post("/reset", (_req, res) => {
       ).run("hrv_stress", "NaN", new Date().toISOString());
     });
     auditAppend("sim_reset", {});
-    res.json({ ok: true, message: "Telemetry and logs cleared." });
+    res.json({ ok: true, message: "Telemetry cleared (audit log preserved)." });
   } catch (err) {
     res.status(500).json({ error: "Reset failed", detail: (err as Error).message });
   }

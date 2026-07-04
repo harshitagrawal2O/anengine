@@ -1,13 +1,44 @@
 import { config } from "./config.js";
 import { db, recordEvent, setShuttingDown } from "./db.js";
-import { startScheduler } from "./scheduler.js";
+import { startScheduler, stopScheduler } from "./scheduler.js";
 import { createServer } from "./server.js";
 import { append as auditAppend, verifyChain } from "./audit/log.js";
 import { seed } from "./data/seed.js";
 import { countCalibratedContexts } from "./pi-engine/calibration.js";
 import { checkOllamaHealth } from "./gateway/ollama.js";
 import { speakWithRetry } from "./gateway/voice.js";
+import { safeSetTimeout } from "./util/time.js";
 import type { Server } from "node:http";
+
+// ── Boot-time production config validation ────────────────────────────────────
+// Fail fast on misconfigurations that would be unsafe in production rather than
+// booting into an insecure or forgeable state.
+function validateBootConfig(): void {
+  const apiKey = process.env.AURA_API_KEY ?? "";
+
+  // Audit chain integrity: a publicly-known secret means anyone can forge entries.
+  if (config.isProd && config.audit.secretIsDefault) {
+    throw new Error(
+      "AUDIT_HMAC_SECRET is the public default in production — the audit chain would be forgeable. Set a private secret.",
+    );
+  }
+  if (config.audit.secretIsDefault) {
+    console.warn(
+      "[security] AUDIT_HMAC_SECRET is the public default — audit log is NOT tamper-evident. Set AUDIT_HMAC_SECRET.",
+    );
+  }
+
+  // Auth: if the daemon is reachable off-box, it MUST require an API key.
+  if (!config.isLoopbackOnly && !apiKey) {
+    throw new Error(
+      `Refusing to bind to non-loopback host "${config.host}" without AURA_API_KEY. ` +
+        `Set AURA_API_KEY (so requests need Authorization: Bearer <key>), or bind to 127.0.0.1.`,
+    );
+  }
+  if (config.isProd && !apiKey) {
+    throw new Error("AURA_API_KEY must be set in production.");
+  }
+}
 
 function maybeSeed(): void {
   const row = db.prepare("SELECT COUNT(*) AS c FROM calendar").get() as
@@ -38,14 +69,16 @@ function recoverTimers(): void {
       auditAppend("timer_recovered", { id: row.id, label: row.label, overdue: true });
       continue;
     }
-    setTimeout(() => {
+    // safeSetTimeout re-arms in <=24-day chunks so a recovered long-horizon timer
+    // doesn't overflow setTimeout's 32-bit delay and fire immediately.
+    safeSetTimeout(() => {
       const message = `Timer up: ${row.label}.`;
       void speakWithRetry(message);
       db.prepare("UPDATE timers SET fired = 1 WHERE id = ?").run(row.id);
       recordEvent("timer_fired", { label: row.label, minutes: Math.round(remainingMs / 60000), recovered: true });
       auditAppend("timer_fired", { label: row.label, minutes: Math.round(remainingMs / 60000), recovered: true });
       auditAppend("timer_recovered", { id: row.id, label: row.label, overdue: false });
-    }, remainingMs).unref();
+    }, remainingMs, { unref: true });
   }
 }
 
@@ -66,30 +99,42 @@ function setupGracefulShutdown(server: Server): void {
     setShuttingDown(true);
     console.log(`\n[shutdown] ${signal} received — stopping AURA...`);
 
-    // 1. Stop accepting new connections. Give in-flight requests 5s to finish.
-    server.close(() => {
-      console.log("[shutdown] HTTP server closed.");
-    });
+    // 1. Stop the tick loop so no new DB work starts during the drain.
+    stopScheduler();
 
-    // 2. Audit the shutdown event.
+    // 2. Audit the shutdown event while the DB is still open.
     try {
       auditAppend("daemon_stop", { signal, pid: process.pid });
     } catch { /* best-effort — DB may already be locked */ }
 
-    // 3. Flush WAL and close SQLite. Using exec() because checkpoint is sync.
-    try {
-      db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-      db.close();
-      console.log("[shutdown] Database flushed and closed.");
-    } catch (err) {
-      console.error("[shutdown] DB close error (non-fatal):", err);
-    }
+    let closed = false;
+    const closeDb = () => {
+      if (closed) return;
+      closed = true;
+      // Flush WAL and close SQLite only AFTER in-flight requests have drained,
+      // so a handler mid-query never hits a closed database.
+      try {
+        db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+        db.close();
+        console.log("[shutdown] Database flushed and closed.");
+      } catch (err) {
+        console.error("[shutdown] DB close error (non-fatal):", err);
+      }
+    };
 
-    // 4. Give the HTTP server a hard deadline, then exit.
+    // 3. Stop accepting new connections; close the DB once existing ones finish.
+    server.close(() => {
+      console.log("[shutdown] HTTP server closed.");
+      closeDb();
+      process.exit(0);
+    });
+
+    // 4. Hard deadline: if requests don't drain in time, close DB and exit anyway.
     setTimeout(() => {
       console.log("[shutdown] Forced exit after timeout.");
+      closeDb();
       process.exit(0);
-    }, 5000).unref(); // unref so it doesn't keep the event loop alive
+    }, 5000).unref();
   };
 
   process.on("SIGTERM", () => shutdown("SIGTERM"));
@@ -97,23 +142,28 @@ function setupGracefulShutdown(server: Server): void {
 }
 
 // ── Uncaught error handlers ───────────────────────────────────────────────────
-// These prevent the daemon from crashing on unexpected errors. The error is
-// logged to the audit chain and to stderr, but the process continues running.
-process.on("uncaughtException", (err) => {
-  console.error("[FATAL] uncaught exception:", err);
-  try { auditAppend("uncaught_exception", { message: err.message, stack: err.stack?.slice(0, 500) }); } catch {}
-});
+// After an uncaughtException the process is in an undefined state — continuing to
+// run risks corrupt data and masks the failure from a supervisor. We log/audit,
+// then exit with a non-zero code so the process manager (systemd/pm2/container)
+// can restart us cleanly. Guarded so a throw during logging can't loop.
+let fatalHandled = false;
+function handleFatal(kind: string, err: unknown): void {
+  if (fatalHandled) return;
+  fatalHandled = true;
+  const e = err instanceof Error ? err : new Error(String(err));
+  console.error(`[FATAL] ${kind}:`, e);
+  try { auditAppend(kind, { message: e.message, stack: e.stack?.slice(0, 500) }); } catch {}
+  try { db.exec("PRAGMA wal_checkpoint(TRUNCATE)"); } catch {}
+  // Small delay so stderr/audit flush before exit.
+  setTimeout(() => process.exit(1), 100).unref();
+}
 
-process.on("unhandledRejection", (reason) => {
-  console.error("[FATAL] unhandled rejection:", reason);
-  try {
-    const msg = reason instanceof Error ? reason.message : String(reason);
-    auditAppend("unhandled_rejection", { message: msg });
-  } catch {}
-});
+process.on("uncaughtException", (err) => handleFatal("uncaught_exception", err));
+process.on("unhandledRejection", (reason) => handleFatal("unhandled_rejection", reason));
 
 function main(): void {
   console.log("AURA daemon starting...");
+  validateBootConfig();
   console.log(`  db:    ${config.paths.db}`);
   console.log(`  soul:  ${config.paths.soul}`);
   console.log(`  beat:  ${config.paths.heartbeat}`);
@@ -136,8 +186,8 @@ function main(): void {
   startScheduler();
 
   const app = createServer();
-  const server = app.listen(config.port, () => {
-    console.log(`AURA dashboard:  http://localhost:${config.port}`);
+  const server = app.listen(config.port, config.host, () => {
+    console.log(`AURA dashboard:  http://${config.host}:${config.port}  (bound to ${config.host})`);
     void checkOllamaHealth().then((h) => {
       if (h.online) {
         console.log(`Ollama: ONLINE — model ${h.model ?? config.ollama.model} loaded`);

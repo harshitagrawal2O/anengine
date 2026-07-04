@@ -134,16 +134,17 @@ export function learn(now: Date = new Date()): LearnedPatterns {
   const sleepAll = sleepRows.map((r) => r.duration_min);
   const sleepRecent = sleepAll.slice(0, 5);
   const sleepOld = sleepAll.slice(5);
+  const sleepRecentAvg =
+    sleepRecent.length > 0 ? sleepRecent.reduce((a, b) => a + b, 0) / sleepRecent.length : 0;
+  // With no older window yet, compare recent against itself so the trend reads
+  // "stable" — not "up" (the old code compared against 0, so every user with
+  // < 6 days of sleep history falsely trended upward).
+  const sleepOldAvg =
+    sleepOld.length > 0 ? sleepOld.reduce((a, b) => a + b, 0) / sleepOld.length : sleepRecentAvg;
   const sleep = {
     median_min: Math.round(median(sleepAll)),
-    recent_avg_min:
-      sleepRecent.length > 0
-        ? Math.round(sleepRecent.reduce((a, b) => a + b, 0) / sleepRecent.length)
-        : 0,
-    trend: sleepTrend(
-      sleepRecent.length > 0 ? sleepRecent.reduce((a, b) => a + b, 0) / sleepRecent.length : 0,
-      sleepOld.length > 0 ? sleepOld.reduce((a, b) => a + b, 0) / sleepOld.length : 0,
-    ),
+    recent_avg_min: Math.round(sleepRecentAvg),
+    trend: sleepTrend(sleepRecentAvg, sleepOldAvg),
   };
 
   return {

@@ -27,6 +27,7 @@ import { speakWithRetry } from "../gateway/voice.js";
 import * as morningBrief from "../skills/morning_brief/index.js";
 import type { Lang } from "../i18n.js";
 import { planBrain } from "./host.js";
+import { safeSetTimeout } from "../util/time.js";
 
 export type ToolParam = {
   type: "string" | "number" | "boolean";
@@ -36,7 +37,13 @@ export type ToolParam = {
 
 export type ToolResult = { ok: boolean; summary: string; data?: unknown };
 
-export type ToolContext = { lang: Lang };
+export type ToolContext = {
+  lang: Lang;
+  // Sensitive tools (OS actions like lock/open/screenshot) only run when the
+  // caller has explicitly granted permission for this request. Default false so
+  // the LLM cannot take irreversible real-world actions on its own.
+  allowSensitive?: boolean;
+};
 
 export type Tool = {
   name: string;
@@ -64,16 +71,15 @@ function scheduleTimer(label: string, minutes: number): void {
   const end = new Date(Date.now() + minutes * 60 * 1000);
   const res = db.prepare("INSERT INTO timers (label, end_ts, fired) VALUES (?, ?, 0)").run(label, end.toISOString());
   const id = Number(res.lastInsertRowid);
-  setTimeout(
-    async () => {
-      if (isShuttingDown()) return;
-      const spoken = await speakWithRetry(`Timer up: ${label}.`);
-      db.prepare("UPDATE timers SET fired = 1 WHERE id = ?").run(id);
-      recordEvent("timer_fired", { label, minutes, spoken: spoken.spoken });
-      auditAppend("timer_fired", { label, minutes });
-    },
-    Math.max(0, minutes * 60 * 1000),
-  );
+  // safeSetTimeout avoids the >24.8-day setTimeout overflow (a huge timer value
+  // would otherwise fire immediately).
+  safeSetTimeout(async () => {
+    if (isShuttingDown()) return;
+    const spoken = await speakWithRetry(`Timer up: ${label}.`);
+    db.prepare("UPDATE timers SET fired = 1 WHERE id = ?").run(id);
+    recordEvent("timer_fired", { label, minutes, spoken: spoken.spoken });
+    auditAppend("timer_fired", { label, minutes });
+  }, Math.max(0, minutes * 60 * 1000));
 }
 
 // ── the tools ──────────────────────────────────────────────────────────────
@@ -328,7 +334,22 @@ export const TOOLS: Tool[] = [
 
 export const TOOL_MAP: Map<string, Tool> = new Map(TOOLS.map((t) => [t.name, t]));
 
-/** Execute a tool by name, audit-logging the call and its result. */
+// Validate the model-supplied args against the tool's declared params: required
+// params must be present, and numeric params must actually be numbers. This stops
+// malformed/hallucinated tool calls from reaching OS-executing gateways.
+function validateArgs(tool: Tool, args: Record<string, unknown>): string | null {
+  for (const [key, spec] of Object.entries(tool.params)) {
+    const present = args[key] !== undefined && args[key] !== null && args[key] !== "";
+    if (spec.required && !present) return `missing required arg "${key}"`;
+    if (present && spec.type === "number" && !Number.isFinite(Number(args[key]))) {
+      return `arg "${key}" must be a number`;
+    }
+  }
+  return null;
+}
+
+/** Execute a tool by name, enforcing the sensitive-action gate + arg validation,
+ *  and audit-logging the call and its result. */
 export async function callTool(
   name: string,
   args: Record<string, unknown>,
@@ -339,6 +360,25 @@ export async function callTool(
     auditAppend("agent_tool_unknown", { name, args });
     return { ok: false, summary: `Unknown tool: ${name}.` };
   }
+
+  // Sensitive actions (lock screen, open app/url, screenshot, volume) are
+  // irreversible real-world effects. The LLM may REQUEST them, but they only run
+  // when the caller explicitly granted permission for this request. Otherwise we
+  // refuse and tell the model, so it can finish or ask the user to confirm.
+  if (tool.sensitive && !ctx.allowSensitive) {
+    auditAppend("agent_tool_blocked", { name, args, reason: "sensitive_requires_confirmation" });
+    return {
+      ok: false,
+      summary: `BLOCKED: "${name}" is a sensitive action that needs explicit user confirmation. It was NOT executed.`,
+    };
+  }
+
+  const argErr = validateArgs(tool, args);
+  if (argErr) {
+    auditAppend("agent_tool_bad_args", { name, args, error: argErr });
+    return { ok: false, summary: `Invalid arguments for "${name}": ${argErr}.` };
+  }
+
   try {
     const result = await tool.run(args, ctx);
     auditAppend("agent_tool_call", { name, args, side_effect: tool.sideEffect, ok: result.ok, summary: result.summary });

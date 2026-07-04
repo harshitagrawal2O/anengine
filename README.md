@@ -211,7 +211,18 @@ User-facing changes (name, language, quiet hours, city) are in **Settings** (gea
 - **Audit log is HMAC-signed** with a key in your `.env`.
 - For the demo: **turn off your WiFi**. AURA still works. That's the privacy proof.
 
-Production note: set `NODE_ENV=production` and `AURA_API_KEY` to enable API key enforcement.
+### Security & production hardening
+
+AURA runs untrusted-ish inputs (LLM output, voice text) close to the OS, so it ships with real guardrails:
+
+- **Loopback by default.** The daemon binds `127.0.0.1` — not reachable off-box. Expose it with `HOST=0.0.0.0`, which then **requires** `AURA_API_KEY` (the process refuses to start otherwise).
+- **Auth + scoped CORS.** Optional bearer-token auth (constant-time compared), enforced in production and whenever exposed. CORS is an explicit allowlist, not origin-reflection, so a random website can't drive your agent or read your data.
+- **Agent tool safety.** The local-LLM agent can *request* OS actions, but sensitive/irreversible tools (lock screen, open app/URL, screenshot, volume) are **blocked unless you explicitly pass `allow_sensitive: true`** per request. Tool args are validated, repeat-loops are capped, and tool output is treated as untrusted data (prompt-injection defense).
+- **Safe TTS.** Voice text is passed to the OS speech engine as inert data (never interpolated into a shell command).
+- **Tamper-evident audit.** Every decision and tool call is HMAC-chained (covering action type + payload); `GET /api/audit` verifies the chain. The signing key must be non-default in production.
+- **Fails fast & clean.** Boot validates config (secret, bind, port); fatal errors exit non-zero for a supervisor to restart; shutdown drains in-flight requests before closing the DB.
+
+Set `NODE_ENV=production`, a private `AUDIT_HMAC_SECRET`, and `AURA_API_KEY` for a production deployment. See `.env.example` for every knob. Typecheck + tests run in CI (`npm run typecheck && npm test`).
 
 ---
 

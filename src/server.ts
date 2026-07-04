@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { config } from "./config.js";
 import { checkOllamaHealth, type OllamaHealth } from "./gateway/ollama.js";
 import { computeScore } from "./score/compute.js";
@@ -100,14 +100,36 @@ function getDbRowCounts(): Record<string, number> {
 
 export function createServer(): express.Express {
   const app = express();
-  app.set("trust proxy", 1);
+
+  // Only trust X-Forwarded-* when explicitly behind a known reverse proxy/tunnel.
+  // Trusting it unconditionally lets a direct client spoof X-Forwarded-For and
+  // bypass per-IP rate limiting. Set AURA_TRUST_PROXY=1 when fronted by a proxy.
+  if (process.env.AURA_TRUST_PROXY === "1") app.set("trust proxy", 1);
+  else app.set("trust proxy", false);
 
   // ── CORS ──────────────────────────────────────────────────────────────────
-  // Wildcard CORS: this is a single-user local daemon, not a public server.
-  // Allowing all origins lets Lovable, localtunnel, ngrok, and any preview
-  // environment reach the API without whitelisting every ephemeral URL.
+  // The PWA is served same-origin by this daemon, so it needs no CORS at all.
+  // We allow an explicit allowlist (localhost dev ports by default; extra origins
+  // via AURA_CORS_ORIGINS="https://a.com,https://b.com") and DO NOT reflect
+  // arbitrary origins — a reflected origin lets any visited website read AURA's
+  // responses (personal data) and drive its OS-action endpoints.
+  const extraOrigins = (process.env.AURA_CORS_ORIGINS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const allowedOrigins = new Set<string>([
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    `http://localhost:${config.port}`,
+    `http://127.0.0.1:${config.port}`,
+    ...extraOrigins,
+  ]);
   app.use(cors({
-    origin: true,   // reflect the request origin — effectively wildcard
+    origin: (origin, cb) => {
+      // Same-origin / non-browser requests (curl, the TWA) send no Origin header.
+      if (!origin || allowedOrigins.has(origin)) return cb(null, true);
+      return cb(null, false); // disallow — browser blocks reading the response
+    },
     methods: ["GET", "POST", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "bypass-tunnel-reminder"],
     credentials: true,
@@ -164,9 +186,14 @@ export function createServer(): express.Express {
     throw new Error("AURA_API_KEY must be set in production.");
   }
   if (API_KEY) {
+    const expected = `Bearer ${API_KEY}`;
+    const expectedBuf = Buffer.from(expected);
     app.use("/api/", (req, res, next) => {
-      const auth = req.headers.authorization;
-      if (auth === `Bearer ${API_KEY}`) return next();
+      const auth = req.headers.authorization ?? "";
+      const authBuf = Buffer.from(auth);
+      // Constant-time compare so an attacker can't time-probe the key byte by byte.
+      const ok = authBuf.length === expectedBuf.length && timingSafeEqual(authBuf, expectedBuf);
+      if (ok) return next();
       res.status(401).json({ error: "unauthorized", message: "Invalid or missing API key" });
     });
     console.log("[security] API key authentication ENABLED");
@@ -174,7 +201,17 @@ export function createServer(): express.Express {
 
   // Cap request bodies — prevents trivial memory exhaustion.
   app.use(express.json({ limit: "256kb" }));
-  app.use("/api/simulate", simulateRouter);
+
+  // Demo/simulation router mutates and can wipe telemetry (incl. the audit log),
+  // so it is mounted ONLY outside production, unless explicitly re-enabled with
+  // AURA_ENABLE_SIMULATE=1. In production it 404s like any unknown route.
+  const simulateEnabled = !config.isProd || process.env.AURA_ENABLE_SIMULATE === "1";
+  if (simulateEnabled) {
+    app.use("/api/simulate", simulateRouter);
+  } else {
+    console.log("[security] /api/simulate DISABLED in production");
+  }
+
   app.use(express.static(config.paths.publicDir));
 
   // Pretty URLs: / is the landing page, /simple is the PWA, /dev is the dev dashboard.
@@ -470,8 +507,11 @@ export function createServer(): express.Express {
     }
     const langRaw = req.body?.lang;
     const lang: Lang = isLang(langRaw) ? langRaw : "en";
+    // Sensitive OS actions require an explicit opt-in per request; the LLM cannot
+    // grant it to itself. Default false.
+    const allowSensitive = req.body?.allow_sensitive === true;
 
-    const run = await runAgent(goal, lang);
+    const run = await runAgent(goal, lang, { allowSensitive });
     if (!run.ok && (run.reason === "ollama_not_configured" || run.reason === "llm_unreachable")) {
       // Graceful degradation: no local brain available → deterministic intents.
       const fallback = await routeIntent(goal, lang);
@@ -723,7 +763,7 @@ export function createServer(): express.Express {
   // Global error handler — catches both sync throws and rejected promises
   // routed via wrap(). Without this, async failures crash the daemon. Must be
   // declared LAST so it sees errors from every preceding route.
-  app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  app.use((err: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
     METRICS.errors_total++;
     const message = err instanceof Error ? err.message : String(err);
     console.error("[server] unhandled error:", err);
@@ -731,7 +771,14 @@ export function createServer(): express.Express {
       auditAppend("server_error", { message });
     } catch { /* never let auditing recursion crash the handler */ }
     if (res.headersSent) return;
-    res.status(500).json({ error: "internal_error", message });
+    // Do NOT leak internal error text/stack to clients — it can reveal file paths,
+    // SQL, or secrets. Return a generic message plus the request id so the real
+    // error can be correlated in server logs (which have the full detail above).
+    res.status(500).json({
+      error: "internal_error",
+      message: "An internal error occurred.",
+      request_id: res.getHeader("X-Request-Id"),
+    });
   });
 
   return app;

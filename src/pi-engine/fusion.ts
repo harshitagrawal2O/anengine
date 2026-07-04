@@ -127,7 +127,7 @@ function getTimeUrgency(nextEventMinUntil: number | null): number {
 //   const hrv = await HealthDataStore.read({ type: "hrv", limit: 1 });
 //   return hrv.length ? normalise(hrv[0].rmssd) : NaN;
 
-export function readHrvStress(): number {
+export function readHrvStress(now: Date = new Date()): number {
   // Read both the normalised stress value AND the timestamp it was written.
   const row = db
     .prepare("SELECT value FROM settings WHERE key = 'hrv_stress'")
@@ -143,7 +143,7 @@ export function readHrvStress(): number {
   // ── Decay: readings older than 2 hours fade to NaN so a disconnected watch
   // doesn't permanently bias the gate. Exponential decay from 1.0 → 0 over
   // 120 minutes; we exclude the signal once it decays below 0.1.
-  const ageMin = (Date.now() - new Date(tsRow.updated_at).getTime()) / 60000;
+  const ageMin = (now.getTime() - new Date(tsRow.updated_at).getTime()) / 60000;
   const DECAY_HALF_LIFE_MIN = 60; // value halves every 60 minutes
   const decayFactor = Math.pow(0.5, ageMin / DECAY_HALF_LIFE_MIN);
   if (decayFactor < 0.1) return NaN; // Signal too stale — drop the channel.
@@ -164,7 +164,7 @@ export function fuseNeed(
     calendar_density: getCalendarDensity(now),
     step_deficit:     getStepDeficit(now),
     notif_burden:     getNotifBurden(now),
-    hrv_stress:       readHrvStress(),
+    hrv_stress:       readHrvStress(now),
     time_urgency:     getTimeUrgency(nextEventMinUntil),
   };
 

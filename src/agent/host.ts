@@ -181,8 +181,18 @@ export function recommendModel(host: HostSpecs, envModel?: string): ModelPlan {
   };
 }
 
-/** Convenience: detect + recommend in one call. */
+// Host specs don't change within a process lifetime, but detection spawns blocking
+// child processes (nvidia-smi / powershell). Cache the result so /api/host and
+// every agent run don't stall the event loop re-probing hardware on each call.
+let _hostCache: HostSpecs | null = null;
+
+export function detectHostCached(): HostSpecs {
+  if (!_hostCache) _hostCache = detectHost();
+  return _hostCache;
+}
+
+/** Convenience: detect (cached) + recommend in one call. */
 export function planBrain(envModel?: string): { host: HostSpecs; plan: ModelPlan } {
-  const host = detectHost();
+  const host = detectHostCached();
   return { host, plan: recommendModel(host, envModel) };
 }

@@ -1,7 +1,16 @@
-import { db, localDayBounds } from "../db.js";
+import { db, localDayBounds, getSetting } from "../db.js";
 import { computeScore } from "../score/compute.js";
+import { readHrvStress } from "./fusion.js";
+import { config } from "../config.js";
 import fs from "node:fs";
-import path from "node:path";
+
+function readTrimmed(file: string, max: number): string {
+  try {
+    return fs.readFileSync(file, "utf8").slice(0, max);
+  } catch {
+    return "";
+  }
+}
 
 export type SystemState = {
   userName: string;
@@ -19,9 +28,9 @@ export function getSystemState(): SystemState {
   const now = new Date();
   const today = localDayBounds(now);
   
-  // Read SOUL and TWIN (Pruned for speed in production)
-  const soul = fs.readFileSync(path.resolve("SOUL.md"), "utf8").slice(0, 500);
-  const twin = fs.readFileSync(path.resolve("TWIN.md"), "utf8").slice(0, 500);
+  // Read SOUL and TWIN (trimmed for speed; resolved via config, never throws).
+  const soul = readTrimmed(config.paths.soul, 500);
+  const twin = readTrimmed(config.paths.twin, 500);
   
   // Steps
   const stepRow = db.prepare("SELECT SUM(count) as total FROM steps WHERE date = ?")
@@ -40,16 +49,17 @@ export function getSystemState(): SystemState {
   const score = computeScore();
 
   return {
-    userName: "User", // Can be customized if setting exists
+    userName: getSetting("user_name") || "User",
     time: now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
     score: score.total,
     steps: stepRow?.total || 0,
-    nextMeeting: next ? { 
-      title: next.title, 
-      time: new Date(next.start_ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) 
+    nextMeeting: next ? {
+      title: next.title,
+      time: new Date(next.start_ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
     } : undefined,
     recentNotes: notes.map(n => n.body),
-    hrvStress: 0.85, 
+    // Real Galaxy-Watch HRV stress (NaN when no recent reading), not a hardcode.
+    hrvStress: readHrvStress(now),
     soul,
     twin,
   };
@@ -68,6 +78,6 @@ Time: ${state.time}
 User Readiness: ${state.score}/100
 Steps: ${state.steps}
 ${state.nextMeeting ? `Next Meeting: ${state.nextMeeting.title} at ${state.nextMeeting.time}` : "No more meetings today."}
-Stress (HRV): ${state.hrvStress > 0.7 ? "High" : "Normal"}
+Stress (HRV): ${!Number.isFinite(state.hrvStress) ? "Unknown (no watch data)" : state.hrvStress > 0.7 ? "High" : "Normal"}
 `.trim();
 }

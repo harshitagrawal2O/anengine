@@ -69,10 +69,12 @@ export async function narrate(req: LlmRequest): Promise<{ text: string; source: 
   // 2. Try Gemini (Cloud Fallback)
   if (config.gemini.apiKey) {
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${config.gemini.model}:generateContent?key=${config.gemini.apiKey}`;
+      // Pass the API key as a header, not a URL query param — query strings leak
+      // into access logs, proxies, and error messages.
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${config.gemini.model}:generateContent`;
       const res = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-goog-api-key": config.gemini.apiKey },
         body: JSON.stringify({
           contents: [{
             parts: [{ text: `System Instructions: ${req.system}\n\nUser Question and Context:\n${req.user}` }]

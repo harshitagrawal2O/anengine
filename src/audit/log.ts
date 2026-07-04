@@ -4,9 +4,14 @@ import { config } from "../config.js";
 
 const GENESIS = "0".repeat(64);
 
-function sign(prevHash: string, payload: string, ts: string): string {
+// Sign prev_hash + kind + ts + payload. The `kind` column MUST be covered or an
+// attacker could rewrite the action type (e.g. "agent_tool_blocked" -> "…_call")
+// without invalidating the chain.
+function sign(prevHash: string, kind: string, payload: string, ts: string): string {
   return createHmac("sha256", config.audit.secret)
     .update(prevHash)
+    .update("|")
+    .update(kind)
     .update("|")
     .update(ts)
     .update("|")
@@ -24,7 +29,7 @@ export function append(kind: string, payload: unknown): { hash: string; prev_has
   const body = JSON.stringify(payload);
   const last = lastHashStmt.get() as { hash: string } | undefined;
   const prev = last?.hash ?? GENESIS;
-  const hash = sign(prev, body, ts);
+  const hash = sign(prev, kind, body, ts);
   insertStmt.run(ts, kind, body, prev, hash);
   return { hash, prev_hash: prev };
 }
@@ -40,12 +45,12 @@ type AuditRow = {
 
 export function verifyChain(): { ok: boolean; broken_at?: number } {
   const rows = db
-    .prepare("SELECT id, ts, payload, prev_hash, hash FROM audit_log ORDER BY id ASC")
+    .prepare("SELECT id, ts, kind, payload, prev_hash, hash FROM audit_log ORDER BY id ASC")
     .all() as AuditRow[];
   let prev = GENESIS;
   for (const row of rows) {
     if (row.prev_hash !== prev) return { ok: false, broken_at: row.id };
-    const expect = sign(prev, row.payload, row.ts);
+    const expect = sign(prev, row.kind, row.payload, row.ts);
     if (expect !== row.hash) return { ok: false, broken_at: row.id };
     prev = row.hash;
   }

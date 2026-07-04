@@ -44,12 +44,14 @@ function buildDaySummary(now: Date): DaySummary {
   )?.c ?? 0;
 
   // AURA pings: actual interventions sent today (not dry-runs).
+  // Use the local-day ISO range, not SQLite date(ts) (which extracts the UTC
+  // date and mismatches the local `today` near midnight / in non-UTC zones).
   const aura_pings = (
     db
       .prepare(
-        "SELECT COUNT(*) AS c FROM skill_runs WHERE date(ts) = ? AND ((accepted IS NULL AND dismissed IS NULL) OR accepted = 1)",
+        "SELECT COUNT(*) AS c FROM skill_runs WHERE ts >= ? AND ts <= ? AND ((accepted IS NULL AND dismissed IS NULL) OR accepted = 1)",
       )
-      .get(today) as { c: number } | undefined
+      .get(todayBounds.start, todayBounds.end) as { c: number } | undefined
   )?.c ?? 0;
 
   // Tomorrow's event density.

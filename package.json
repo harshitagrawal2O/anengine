@@ -3,14 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "seed": "tsx src/data/seed.ts",
-    "reseed": "rm -f data/aura.db data/aura.db-wal data/aura.db-shm && tsx src/data/seed.ts",
+    "reseed": "node scripts/reseed.mjs",
     "tick": "tsx src/cli/tick.ts",
     "learn": "tsx src/twin/learn.ts",
     "eval": "tsx src/eval/harness.ts",
+    "test": "node --import tsx --test --test-force-exit \"tests/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit --strict",
     "inspect:audit": "node scripts/inspect-audit.mjs",
     "seed:demo": "tsx scratch/seed_demo.ts",
     "tunnel": "ngrok http 3000",
@@ -21,13 +26,13 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "express-rate-limit": "^8.5.1",
+    "tsx": "^4.19.2",
     "yaml": "^2.6.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.0",
-    "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }
 }

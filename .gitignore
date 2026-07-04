@@ -11,3 +11,13 @@ android-build/aura-twa/build/
 android-build/aura-twa/.gradle/
 android-build/aura-twa/app/build/
 
+# Vendored binaries / large artifacts should not live in git (bloats clones).
+# Keep them on disk locally; fetch/rebuild in CI or release steps instead.
+*.exe
+scratch/*.log
+scratch/*.txt
+
+# Test scratch markers
+scratch/pwned*.txt
+scratch/*_node.txt
+

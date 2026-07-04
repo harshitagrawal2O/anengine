@@ -11,6 +11,9 @@ export async function sendTelegram(text: string): Promise<{ ok: boolean; channel
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ chat_id: chatId, text }),
+      // Bound the request so a hung/slow Telegram API can't leak a pending
+      // fetch (and block a tick that awaits delivery) indefinitely.
+      signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) {
       const body = await res.text();

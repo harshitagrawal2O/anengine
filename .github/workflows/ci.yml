@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: "npm"
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck (strict)
+        run: npm run typecheck
+      - name: Test
+        run: npm test
+      - name: Eval harness is deterministic
+        run: |
+          npm run eval > /dev/null
+          cp eval/results.json /tmp/r1.json
+          npm run eval > /dev/null
+          diff <(grep -v generated_at /tmp/r1.json) <(grep -v generated_at eval/results.json) \
+            && echo "eval is reproducible" || (echo "eval NOT reproducible" && exit 1)

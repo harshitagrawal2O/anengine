@@ -56,6 +56,7 @@ db.exec(`
     source TEXT NOT NULL,
     cleared INTEGER NOT NULL DEFAULT 0
   );
+  CREATE INDEX IF NOT EXISTS notifications_ts_idx ON notifications(ts);
 
   CREATE TABLE IF NOT EXISTS skill_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,6 +75,7 @@ db.exec(`
     prev_hash TEXT NOT NULL,
     hash TEXT NOT NULL
   );
+  CREATE INDEX IF NOT EXISTS audit_log_ts_idx ON audit_log(ts);
 
   CREATE TABLE IF NOT EXISTS scheduler_state (
     tick_id TEXT PRIMARY KEY,

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
 import { config } from "./config.js";
-import { db, pruneCaches } from "./db.js";
+import { db, pruneCaches, isShuttingDown } from "./db.js";
 import { append as auditAppend } from "./audit/log.js";
 import * as morningBrief from "./skills/morning_brief/index.js";
 import * as commuteGuardian from "./skills/commute_guardian/index.js";
@@ -153,11 +153,23 @@ export function startScheduler(): void {
   // Fire once at startup so the dashboard has a fresh score immediately.
   // Catch rejections so a single bad tick doesn't kill the daemon.
   const safeTick = () => {
+    if (isShuttingDown()) return; // don't run ticks against a draining/closing DB
     runTickOnce().catch((err) => {
       console.error("[scheduler] runTickOnce failed:", err);
       try { auditAppend("scheduler_error", { error: (err as Error)?.message ?? String(err) }); } catch {}
     });
   };
   safeTick();
-  setInterval(safeTick, config.tickIntervalSec * 1000);
+  schedulerHandle = setInterval(safeTick, config.tickIntervalSec * 1000);
+}
+
+let schedulerHandle: ReturnType<typeof setInterval> | null = null;
+
+/** Stop the tick loop — called during graceful shutdown so ticks don't fire
+ *  against a closed database during the drain window. */
+export function stopScheduler(): void {
+  if (schedulerHandle) {
+    clearInterval(schedulerHandle);
+    schedulerHandle = null;
+  }
 }
